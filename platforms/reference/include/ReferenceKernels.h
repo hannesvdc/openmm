@@ -62,6 +62,7 @@ class ReferenceConstraintAlgorithm;
 class ReferenceNoseHooverChain;
 class ReferenceMonteCarloBarostat;
 class ReferenceNoseHooverDynamics;
+class ReferenceRandomWalkDynamics;
 class ReferenceVariableStochasticDynamics;
 class ReferenceVariableVerletDynamics;
 class ReferenceVerletDynamics;
@@ -1591,6 +1592,43 @@ private:
     ReferencePlatform::PlatformData& data;
     std::vector<double> masses;
     int frequency;
+};
+
+/**
+ * This kernel is invoked by RandomWalkIntegrator to take one time step.
+ */
+class ReferenceIntegrateRandomWalkStepKernel : public IntegrateRandomWalkStepKernel {
+public:
+	ReferenceIntegrateRandomWalkStepKernel(std::string name, const Platform& platform, ReferencePlatform::PlatformData& data) : IntegrateRandomWalkStepKernel(name, platform),
+        data(data), dynamics(0) {
+    }
+    ~ReferenceIntegrateRandomWalkStepKernel();
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the RandomWalkIntegrator this kernel will be used for
+     */
+    void initialize(const System& system, const RandomWalkIntegrator& integrator);
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the RandomWalkIntegrator this kernel is being used for
+     */
+    void execute(ContextImpl& context, const RandomWalkIntegrator& integrator);
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the BrownianIntegrator this kernel is being used for
+     */
+    double computeKineticEnergy(ContextImpl& context, const RandomWalkIntegrator& integrator);
+private:
+    ReferencePlatform::PlatformData& data;
+    ReferenceRandomWalkDynamics* dynamics;
+    std::vector<double> masses;
+    double prevTemp, prevStepSize;
 };
 
 } // namespace OpenMM

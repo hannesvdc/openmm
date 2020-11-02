@@ -27,6 +27,7 @@
 
 #include "ReferenceDynamics.h"
 #include <tuple>
+#include <vector>
 
 namespace OpenMM {
 
@@ -101,7 +102,7 @@ class ReferenceNoseHooverDynamics : public ReferenceDynamics {
          --------------------------------------------------------------------------------------- */
       void step2(OpenMM::ContextImpl &context, const OpenMM::System& system, std::vector<OpenMM::Vec3>& atomCoordinates,
                  std::vector<OpenMM::Vec3>& velocities, std::vector<OpenMM::Vec3>& forces, std::vector<double>& masses, double tolerance, bool &forcesAreValid,
-                 const std::vector<int> & allAtoms, const std::vector<std::tuple<int, int, double>> & allPairs, double maxPairDistance);
+                 const std::vector<int> & allAtoms, const std::vector<std::tuple<int, int, double> > & allPairs, double maxPairDistance);
       
 };
 

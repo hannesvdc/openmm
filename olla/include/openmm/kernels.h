@@ -57,6 +57,7 @@
 #include "openmm/LangevinIntegrator.h"
 #include "openmm/MonteCarloBarostat.h"
 #include "openmm/PeriodicTorsionForce.h"
+#include "openmm/RandomWalkIntegrator.h"
 #include "openmm/RBTorsionForce.h"
 #include "openmm/RMSDForce.h"
 #include "openmm/NonbondedForce.h"
@@ -1606,6 +1607,39 @@ public:
      * @param nz      the number of grid points along the Z axis
      */
     virtual void getPMEParameters(double& alpha, int& nx, int& ny, int& nz) const = 0;
+};
+
+/**
+ * This kernel is invoked by BrownianIntegrator to take one time step.
+ */
+class IntegrateRandomWalkStepKernel : public KernelImpl {
+public:
+    static std::string Name() {
+        return "IntegrateRandonWalkStep";
+    }
+    IntegrateRandomWalkStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the RandomWalkIntegrator this kernel will be used for
+     */
+    virtual void initialize(const System& system, const RandomWalkIntegrator& integrator) = 0;
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the RandomWalkIntegrator this kernel is being used for
+     */
+    virtual void execute(ContextImpl& context, const RandomWalkIntegrator& integrator) = 0;
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the RandomWalkIntegrator this kernel is being used for
+     */
+    virtual double computeKineticEnergy(ContextImpl& context, const RandomWalkIntegrator& integrator) = 0;
 };
 
 } // namespace OpenMM

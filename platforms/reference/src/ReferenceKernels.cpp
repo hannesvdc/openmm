@@ -61,6 +61,7 @@
 #include "ReferenceProperDihedralBond.h"
 #include "ReferenceRbDihedralBond.h"
 #include "ReferenceRMSDForce.h"
+#include "ReferenceRandomWalkDynamics.h"
 #include "ReferenceStochasticDynamics.h"
 #include "ReferenceTabulatedFunction.h"
 #include "ReferenceVariableStochasticDynamics.h"
@@ -2768,4 +2769,46 @@ void ReferenceRemoveCMMotionKernel::execute(ContextImpl& context) {
             velData[i][2] -= momentum[2];
         }
     }
+}
+
+ReferenceIntegrateRandomWalkStepKernel::~ReferenceIntegrateRandomWalkStepKernel() {
+    if (dynamics)
+        delete dynamics;
+}
+
+void ReferenceIntegrateRandomWalkStepKernel::initialize(const System& system, const RandomWalkIntegrator& integrator) {
+    int numParticles = system.getNumParticles();
+    masses.resize(numParticles);
+    for (int i = 0; i < numParticles; ++i)
+        masses[i] = system.getParticleMass(i);
+    SimTKOpenMMUtilities::setRandomNumberSeed((unsigned int) integrator.getRandomNumberSeed());
+}
+
+void ReferenceIntegrateRandomWalkStepKernel::execute(ContextImpl& context, const RandomWalkIntegrator& integrator) {
+    double temperature = integrator.getTemperature();
+    double stepSize = integrator.getStepSize();
+    vector<Vec3>& posData = extractPositions(context);
+    vector<Vec3>& velData = extractVelocities(context);
+    vector<Vec3>& forceData = extractForces(context);
+
+    if (dynamics == 0 || temperature != prevTemp || stepSize != prevStepSize) {
+        // Recreate the computation objects with the new parameters.
+
+        if (dynamics)
+            delete dynamics;
+        dynamics = new ReferenceRandomWalkDynamics(
+                context.getSystem().getNumParticles(),
+                stepSize,
+                temperature);
+        dynamics->setReferenceConstraintAlgorithm(&extractConstraints(context));
+        prevTemp = temperature;
+        prevStepSize = stepSize;
+    }
+    dynamics->update(context.getSystem(), posData, velData, forceData, masses, integrator.getConstraintTolerance());
+    data.time += stepSize;
+    data.stepCount++;
+}
+
+double ReferenceIntegrateRandomWalkStepKernel::computeKineticEnergy(ContextImpl& context, const RandomWalkIntegrator& integrator) {
+	return computeShiftedKineticEnergy(context, masses, 0);;
 }
