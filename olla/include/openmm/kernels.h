@@ -53,6 +53,7 @@
 #include "openmm/GBSAOBCForce.h"
 #include "openmm/HarmonicAngleForce.h"
 #include "openmm/HarmonicBondForce.h"
+#include "openmm/IndirectReconstructionIntegrator.h"
 #include "openmm/KernelImpl.h"
 #include "openmm/LangevinIntegrator.h"
 #include "openmm/MonteCarloBarostat.h"
@@ -1610,12 +1611,12 @@ public:
 };
 
 /**
- * This kernel is invoked by BrownianIntegrator to take one time step.
+ * This kernel is invoked by RandomWalkIntegrator to take one time step.
  */
 class IntegrateRandomWalkStepKernel : public KernelImpl {
 public:
     static std::string Name() {
-        return "IntegrateRandonWalkStep";
+        return "IntegrateRandomWalkStep";
     }
     IntegrateRandomWalkStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform) {
     }
@@ -1640,6 +1641,39 @@ public:
      * @param integrator the RandomWalkIntegrator this kernel is being used for
      */
     virtual double computeKineticEnergy(ContextImpl& context, const RandomWalkIntegrator& integrator) = 0;
+};
+
+/**
+ * This kernel is invoked by IndirectReconstructionIntegrator to take one time step.
+ */
+class IntegrateIndirectReconstructionStepKernel : public KernelImpl {
+public:
+	static std::string Name() {
+		return "IntegrateIndirectReconstructionStepKernel";
+	}
+	IntegrateIndirectReconstructionStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform) {
+	}
+	/**
+	 * Initialize the kernel.
+	 *
+	 * @param system     the System this kernel will be applied to
+	 * @param integrator the IndirectReconstructionIntegrator this kernel will be used for
+	 */
+	virtual void initialize(const System& system, const IndirectReconstructionIntegrator& integrator) = 0;
+	/**
+	 * Execute the kernel.
+	 *
+	 * @param context    the context in which to execute this kernel
+	 * @param integrator the IndirectReconstructionIntegrator this kernel is being used for
+	 */
+	virtual void execute(ContextImpl& context, const IndirectReconstructionIntegrator& integrator) = 0;
+	/**
+	 * Compute the kinetic energy.
+	 *
+	 * @param context    the context in which to execute this kernel
+	 * @param integrator the IndirectReconstructionIntegrator this kernel is being used for
+	 */
+	virtual double computeKineticEnergy(ContextImpl& context, const IndirectReconstructionIntegrator& integrator) = 0;
 };
 
 } // namespace OpenMM

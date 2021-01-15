@@ -63,6 +63,7 @@ class ReferenceNoseHooverChain;
 class ReferenceMonteCarloBarostat;
 class ReferenceNoseHooverDynamics;
 class ReferenceRandomWalkDynamics;
+class ReferenceIndirectReconstructionDynamics;
 class ReferenceVariableStochasticDynamics;
 class ReferenceVariableVerletDynamics;
 class ReferenceVerletDynamics;
@@ -1627,6 +1628,43 @@ public:
 private:
     ReferencePlatform::PlatformData& data;
     ReferenceRandomWalkDynamics* dynamics;
+    std::vector<double> masses;
+    double prevTemp, prevStepSize;
+};
+
+/**
+ * This kernel is invoked by IndirectReconstructionIntegrator to take one time step.
+ */
+class ReferenceIntegrateIndirectReconstructionStepKernel : public IntegrateIndirectReconstructionStepKernel {
+public:
+	ReferenceIntegrateIndirectReconstructionStepKernel(std::string name, const Platform& platform, ReferencePlatform::PlatformData& data) : IntegrateIndirectReconstructionStepKernel(name, platform),
+        data(data), dynamics(0) {
+    }
+    ~ReferenceIntegrateIndirectReconstructionStepKernel();
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the IndirectReconstructionIntegrator this kernel will be used for
+     */
+    void initialize(const System& system, const IndirectReconstructionIntegrator& integrator);
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the IndirectReconstructionIntegrator this kernel is being used for
+     */
+    void execute(ContextImpl& context, const IndirectReconstructionIntegrator& integrator);
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the IndirectReconstructionIntegrator this kernel is being used for
+     */
+    double computeKineticEnergy(ContextImpl& context, const IndirectReconstructionIntegrator& integrator);
+private:
+    ReferencePlatform::PlatformData& data;
+    ReferenceIndirectReconstructionDynamics* dynamics;
     std::vector<double> masses;
     double prevTemp, prevStepSize;
 };

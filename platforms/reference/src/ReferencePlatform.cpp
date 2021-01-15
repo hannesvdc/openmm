@@ -70,6 +70,7 @@ ReferencePlatform::ReferencePlatform() {
     registerKernelFactory(IntegrateLangevinStepKernel::Name(), factory);
     registerKernelFactory(IntegrateLangevinMiddleStepKernel::Name(), factory);
     registerKernelFactory(IntegrateBrownianStepKernel::Name(), factory);
+    registerKernelFactory(IntegrateIndirectReconstructionStepKernel::Name(), factory);
     registerKernelFactory(IntegrateRandomWalkStepKernel::Name(), factory);
     registerKernelFactory(IntegrateVariableLangevinStepKernel::Name(), factory);
     registerKernelFactory(IntegrateVariableVerletStepKernel::Name(), factory);
