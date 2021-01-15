@@ -29,9 +29,12 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.                                     *
  * -------------------------------------------------------------------------- */
 
+#define CL_HPP_ENABLE_EXCEPTIONS
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #include "OpenCLTests.h"
 #include "TestNonbondedForce.h"
-#include <cl.hpp>
+#include "opencl.hpp"
 #include <string>
 
 void testParallelComputation(NonbondedForce::NonbondedMethod method) {
@@ -144,7 +147,7 @@ bool canRunHugeTest() {
 
     // Only run the huge test if the device has at least 4 GB of memory.
 
-    return (memory >= 4*(1<<30));
+    return (memory >= 4*(long long)(1<<30));
 }
 
 void runPlatformTests() {
