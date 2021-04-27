@@ -17,11 +17,12 @@ using namespace OpenMM;
 using std::string;
 using std::vector;
 
-RandomWalkIntegrator::RandomWalkIntegrator(double temperature, double stepSize) {
+RandomWalkIntegrator::RandomWalkIntegrator(double temperature, double stepSize, double period) {
     setTemperature(temperature);
     setStepSize(stepSize);
     setConstraintTolerance(1e-5);
     setRandomNumberSeed(0);
+    _period = period;
 }
 
 void RandomWalkIntegrator::initialize(ContextImpl& contextRef) {
@@ -31,6 +32,7 @@ void RandomWalkIntegrator::initialize(ContextImpl& contextRef) {
 	owner = &contextRef.getOwner();
 	kernel = context->getPlatform().createKernel(IntegrateRandomWalkStepKernel::Name(), contextRef);
 	kernel.getAs<IntegrateRandomWalkStepKernel>().initialize(contextRef.getSystem(), *this);
+    kernel.getAs<IntegrateRandomWalkStepKernel>().setPeriod(_period);
 }
 
 void RandomWalkIntegrator::cleanup() {

@@ -1,14 +1,20 @@
+/*
+ * ReferenceIndirectReconstructionDynamics.cpp
+ *
+ *  Created on: 2 Nov 2020
+ *      Author: hannesvdc
+ */
+
 #include <cstring>
 #include <sstream>
 #include <iostream>
 
 #include "SimTKOpenMMUtilities.h"
-#include "ReferenceRandomWalkDynamics.h"
+#include "ReferenceDampedReconstructionDynamics.h"
 #include "ReferenceVirtualSites.h"
 #include "openmm/OpenMMException.h"
 
 #include <cstdio>
-#include <cmath>
 
 using std::vector;
 using namespace OpenMM;
@@ -23,13 +29,16 @@ using namespace OpenMM;
 
    --------------------------------------------------------------------------------------- */
 
-ReferenceRandomWalkDynamics::ReferenceRandomWalkDynamics(int numberOfAtoms,
-                                                          double deltaT,
-                                                          double temperature,
-                                                          double period) :
-           ReferenceDynamics(numberOfAtoms, deltaT, temperature), _period(period) {
+ReferenceDampedReconstructionDynamics::ReferenceDampedReconstructionDynamics(int numberOfAtoms,
+                                                                                 double deltaT,
+                                                                                 double temperature,
+																			   ReactionCoordinate* rc,
+																			   double lam,
+                                                                             double gam) :
+           ReferenceDynamics(numberOfAtoms, deltaT, temperature), lambda(lam), gamma(gam), reactionCoordinate(rc) {
 
    xPrime.resize(numberOfAtoms);
+    macroVariable.resize(numberOfAtoms, Vec3(0., 0., 0.));
 }
 
 /**---------------------------------------------------------------------------------------
@@ -38,7 +47,7 @@ ReferenceRandomWalkDynamics::ReferenceRandomWalkDynamics(int numberOfAtoms,
 
    --------------------------------------------------------------------------------------- */
 
-ReferenceRandomWalkDynamics::~ReferenceRandomWalkDynamics() {
+ReferenceDampedReconstructionDynamics::~ReferenceDampedReconstructionDynamics() {
 }
 
 
@@ -55,29 +64,29 @@ ReferenceRandomWalkDynamics::~ReferenceRandomWalkDynamics() {
 
    --------------------------------------------------------------------------------------- */
 
-void ReferenceRandomWalkDynamics::update(const OpenMM::System& system, vector<Vec3>& atomCoordinates,
-                                          vector<Vec3>& velocities,
-                                          vector<Vec3>& forces, vector<double>& masses, double tolerance) {
+void ReferenceDampedReconstructionDynamics::update(const OpenMM::System& system, vector<Vec3>& atomCoordinates,
+                                                    vector<Vec3>& velocities,
+                                                    vector<Vec3>& forces, vector<double>& masses, double tolerance) {
 
    // Perform the integration.
    int numberOfAtoms = system.getNumParticles();
-   const double noiseAmplitude = sqrt(2.0*BOLTZ*getTemperature()*getDeltaT());
-   for (int i = 0; i < numberOfAtoms; ++i) {
-       if (masses[i] != 0.0) {
-           for (int j = 0; j < 3; ++j) {
-              xPrime[i][j] = atomCoordinates[i][j] + noiseAmplitude*SimTKOpenMMUtilities::getNormallyDistributedRandomNumber();
-               if ( _period > 0. ) {
-                   double numb = round(xPrime[i][j]/(2.0*_period));
-                   xPrime[i][j] = xPrime[i][j] - numb*2.0*_period;
-               }
-               
-               if ( i ==0 && (xPrime[i][j] < -_period || xPrime[i][j] > _period)) {
-                   std::cout << "Sampling error: " << atomCoordinates[i][j] << " " << xPrime[i][j] << std::endl;
-               }
-           }
-       }
-   }
+    double beta = sqrt(2.0*BOLTZ*getTemperature());
+   const double noiseAmplitude = beta*sqrt(getDeltaT());
 
+   std::vector<Vec3> rcValue = reactionCoordinate->value(atomCoordinates);
+   for (int i = 0; i < macroVariable.size(); ++i) {
+	   rcValue[i][0] -= macroVariable[i][0];
+	   rcValue[i][1] -= macroVariable[i][1];
+	   rcValue[i][2] -= macroVariable[i][2];
+   }
+   std::vector<Vec3> rcGrad = reactionCoordinate->gradMatMul(atomCoordinates, rcValue);
+
+   for (int i = 0; i < numberOfAtoms; ++i) {
+       if (masses[i] != 0.0)
+           for (int j = 0; j < 3; ++j) {
+               xPrime[i][j] = atomCoordinates[i][j] + getGamma()*getDeltaT()*forces[i][j] - (1.0 - getGamma())*getDeltaT()*getLambda()*rcGrad[i][j] + noiseAmplitude*SimTKOpenMMUtilities::getNormallyDistributedRandomNumber();
+           }
+   }
 
    // Update the positions and velocities.
    double velocityScale = 1.0/getDeltaT();
@@ -91,6 +100,9 @@ void ReferenceRandomWalkDynamics::update(const OpenMM::System& system, vector<Ve
    ReferenceVirtualSites::computePositions(system, atomCoordinates);
    incrementTimeStep();
 }
+
+
+
 
 
 

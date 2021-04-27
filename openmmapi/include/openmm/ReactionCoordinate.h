@@ -21,9 +21,12 @@ public:
 
 	virtual ~ReactionCoordinate();
 
-	virtual std::vector<Vec3> value(const std::vector<Vec3>& x) = 0;
+    virtual std::vector<Vec3> value(const std::vector<Vec3>& x) = 0;
 
-	virtual std::vector<Vec3> gradMatMul(const std::vector<Vec3>& x) = 0;
+	virtual std::vector<Vec3> gradMatMul(const std::vector<Vec3>& x, const std::vector<Vec3> &z) = 0;
+    
+    virtual double getBiasedEnergy(const std::vector<OpenMM::Vec3> &x,
+                                   const std::vector<OpenMM::Vec3> &z) = 0;
 };
 
 } // namespace OpenMM

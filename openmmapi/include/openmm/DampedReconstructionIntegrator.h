@@ -5,8 +5,8 @@
  *      Author: hannesvdc
  */
 
-#ifndef OPENMM_INDIRECTRECONSTRUCTIONINTEGRATOR_H_
-#define OPENMM_INDIRECTRECONSTRUCTIONINTEGRATOR_H_
+#ifndef OPENMM_DAMPEDRECONSTRUCTIONINTEGRATOR_H_
+#define OPENMM_DAMPEDRECONSTRUCTIONINTEGRATOR_H_
 
 #include "Integrator.h"
 #include "ReactionCoordinate.h"
@@ -18,7 +18,7 @@ namespace OpenMM {
 /**
  * This is an Integrator which simulates a System using Brownian dynamics.
  */
-class OPENMM_EXPORT IndirectReconstructionIntegrator : public Integrator {
+class OPENMM_EXPORT DampedReconstructionIntegrator : public Integrator {
 public:
 	/**
 	 * Create an IndirectReconstructionIntegrator.
@@ -27,7 +27,7 @@ public:
 	 * @param lambda         the strength of the biasing potential.
 	 * @param stepSize       the step size with which to integrate the system (in picoseconds)
 	 */
-	IndirectReconstructionIntegrator(double temperature, double lambda, double stepSize, ReactionCoordinate* rc);
+	DampedReconstructionIntegrator(double temperature, double lambda, double stepSize, double gamma, ReactionCoordinate* rc);
 	/**
 	 * Get the temperature of the heat bath (in Kelvin).
 	 *
@@ -44,12 +44,7 @@ public:
 	void setTemperature(double temp) {
 		temperature = temp;
 	}
-	/**
-	 * Get the strength of the biasing potential.
-	 */
-//	double getLambda() const {
-//		return lambda;
-//	}
+
 	/**
 	 * Set the strength of the biasing potential.
 	 *
@@ -58,12 +53,16 @@ public:
 	void setLambda(double lam) {
 		lambda = lam;
 	}
-	/**
-	 * Get the reactionCoordinate.
-	 */
-//	ReactionCoordinate* getReactionCoordinate() const {
-//		return reactionCoordinate;
-//	}
+
+    /**
+     * Set the damping coefficient.
+     *
+     * @param gam    the damping coefficient.
+     */
+    void setGamma(double gam) {
+        gamma = gam;
+    }
+    
 	/**
 	 * Set the reaction coordinate.
 	 *
@@ -72,12 +71,7 @@ public:
 	void setReactionCoordinate(ReactionCoordinate* rc) {
 		reactionCoordinate = rc;
 	}
-	/**
-	 * Get the current macroscopic state.
-	 */
-//	std::vector<OpenMM::Vec3> getMacroscopicVariable() const {
-//		return macroscopicVariable;
-//	}
+
 	/**
 	 * Set the current macroscopic state.
 	 */
@@ -114,12 +108,7 @@ public:
 	 * @param acc     true if the proposal move was accepted, false if not
 	 */
 	void accepted(bool acc);
-	/**
-	 * Get the previous state.
-	 */
-//	State getPreviousState() const {
-//		return prev_state;
-//	}
+
 	/**
 	 * Advance a simulation through time by taking a series of time steps.
 	 *
@@ -153,7 +142,7 @@ protected:
 
     
 private:
-    double temperature, lambda, beta;
+    double temperature, lambda, beta, gamma;
     int randomNumberSeed;
     State prev_state;
     Kernel kernel;
@@ -163,4 +152,4 @@ private:
 
 }
 
-#endif /* OPENMM_INDIRECTRECONSTRUCTIONINTEGRATOR_H_ */
+#endif /* OPENMM_DAMPEDRECONSTRUCTIONINTEGRATOR_H_ */

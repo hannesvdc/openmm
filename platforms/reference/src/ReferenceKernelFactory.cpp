@@ -109,8 +109,10 @@ KernelImpl* ReferenceKernelFactory::createKernelImpl(std::string name, const Pla
     if (name == RemoveCMMotionKernel::Name())
         return new ReferenceRemoveCMMotionKernel(name, platform, data);
     if (name == IntegrateRandomWalkStepKernel::Name())
-    		return new ReferenceIntegrateRandomWalkStepKernel(name, platform, data);
+        return new ReferenceIntegrateRandomWalkStepKernel(name, platform, data);
     if (name == IntegrateIndirectReconstructionStepKernel::Name())
-    		return new ReferenceIntegrateIndirectReconstructionStepKernel(name, platform, data);
+        return new ReferenceIntegrateIndirectReconstructionStepKernel(name, platform, data);
+    if (name == IntegrateDampedReconstructionStepKernel::Name())
+        return new ReferenceIntegrateDampedReconstructionStepKernel(name, platform, data);
     throw OpenMMException((std::string("Tried to create kernel with illegal kernel name '") + name + "'").c_str());
 }

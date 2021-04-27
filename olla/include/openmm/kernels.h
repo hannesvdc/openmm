@@ -49,6 +49,7 @@
 #include "openmm/CustomNonbondedForce.h"
 #include "openmm/CustomManyParticleForce.h"
 #include "openmm/CustomTorsionForce.h"
+#include "openmm/DampedReconstructionIntegrator.h"
 #include "openmm/GayBerneForce.h"
 #include "openmm/GBSAOBCForce.h"
 #include "openmm/HarmonicAngleForce.h"
@@ -59,6 +60,7 @@
 #include "openmm/MonteCarloBarostat.h"
 #include "openmm/PeriodicTorsionForce.h"
 #include "openmm/RandomWalkIntegrator.h"
+#include "openmm/ReactionCoordinate.h"
 #include "openmm/RBTorsionForce.h"
 #include "openmm/RMSDForce.h"
 #include "openmm/NonbondedForce.h"
@@ -1641,6 +1643,12 @@ public:
      * @param integrator the RandomWalkIntegrator this kernel is being used for
      */
     virtual double computeKineticEnergy(ContextImpl& context, const RandomWalkIntegrator& integrator) = 0;
+    
+    void setPeriod(double period) {
+        _period = period;
+    }
+protected:
+    double _period;
 };
 
 /**
@@ -1651,7 +1659,7 @@ public:
 	static std::string Name() {
 		return "IntegrateIndirectReconstructionStepKernel";
 	}
-	IntegrateIndirectReconstructionStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform) {
+	IntegrateIndirectReconstructionStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform), reactionCoordinate(0) {
 	}
 	/**
 	 * Initialize the kernel.
@@ -1674,6 +1682,112 @@ public:
 	 * @param integrator the IndirectReconstructionIntegrator this kernel is being used for
 	 */
 	virtual double computeKineticEnergy(ContextImpl& context, const IndirectReconstructionIntegrator& integrator) = 0;
+    
+    /**
+     * Set the regularization constant lambda.
+     *
+     * @param lam    the regularization constant
+     */
+    void setLambda(double lam) {
+        lambda = lam;
+    }
+    
+    /**
+     * Set the pointer to the reaction coordinate.
+     *
+     * @param rc    the reaction coordinate
+     */
+    void setReactionCoordinate(ReactionCoordinate *rc) {
+        reactionCoordinate = rc;
+    }
+    
+    /**
+     * Set the macroscopic variable after each macroscopic step.
+     *
+     * @param z    the macroscopic variable
+     */
+    void setMacroscopicVariable(std::vector<Vec3> z) {
+        macroscopicVariable = z;
+    }
+
+protected:
+    double lambda;
+    ReactionCoordinate *reactionCoordinate;
+    std::vector<Vec3> macroscopicVariable;
+};
+
+/**
+ * This kernel is invoked by DampedReconstructionIntegrator to take one time step.
+ */
+class IntegrateDampedReconstructionStepKernel : public KernelImpl {
+public:
+    static std::string Name() {
+        return "IntegrateDampedReconstructionStepKernel";
+    }
+    IntegrateDampedReconstructionStepKernel(std::string name, const Platform& platform) : KernelImpl(name, platform), reactionCoordinate(0) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the DampedReconstructionIntegrator this kernel will be used for
+     */
+    virtual void initialize(const System& system, const DampedReconstructionIntegrator& integrator) = 0;
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the DampedReconstructionIntegrator this kernel is being used for
+     */
+    virtual void execute(ContextImpl& context, const DampedReconstructionIntegrator& integrator) = 0;
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the DampedReconstructionIntegrator this kernel is being used for
+     */
+    virtual double computeKineticEnergy(ContextImpl& context, const DampedReconstructionIntegrator& integrator) = 0;
+    
+    /**
+     * Set the regularization constant lambda.
+     *
+     * @param lam    the regularization constant
+     */
+    void setLambda(double lam) {
+        lambda = lam;
+    }
+    
+    /**
+     * Set the damping coefficient
+     *
+     * @param gam    the damping constant
+     */
+    void setGamma(double gam) {
+        gamma = gam;
+    }
+    
+    /**
+     * Set the pointer to the reaction coordinate.
+     *
+     * @param rc    the reaction coordinate
+     */
+    void setReactionCoordinate(ReactionCoordinate *rc) {
+        reactionCoordinate = rc;
+    }
+    
+    /**
+     * Set the macroscopic variable after each macroscopic step.
+     *
+     * @param z    the macroscopic variable
+     */
+    void setMacroscopicVariable(std::vector<Vec3> z) {
+        macroscopicVariable = z;
+    }
+
+protected:
+    double lambda, gamma;
+    ReactionCoordinate *reactionCoordinate;
+    std::vector<Vec3> macroscopicVariable;
 };
 
 } // namespace OpenMM

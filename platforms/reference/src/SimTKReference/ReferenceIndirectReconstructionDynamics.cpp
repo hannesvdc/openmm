@@ -37,6 +37,7 @@ ReferenceIndirectReconstructionDynamics::ReferenceIndirectReconstructionDynamics
            ReferenceDynamics(numberOfAtoms, deltaT, temperature), lambda(lam), reactionCoordinate(rc) {
 
    xPrime.resize(numberOfAtoms);
+    macroVariable.resize(numberOfAtoms, Vec3(0., 0., 0.));
 }
 
 /**---------------------------------------------------------------------------------------
@@ -68,7 +69,8 @@ void ReferenceIndirectReconstructionDynamics::update(const OpenMM::System& syste
 
    // Perform the integration.
    int numberOfAtoms = system.getNumParticles();
-   const double noiseAmplitude = sqrt(2.0*BOLTZ*getTemperature()*getDeltaT());
+    double beta = sqrt(2.0*BOLTZ*getTemperature());
+   const double noiseAmplitude = beta*sqrt(getDeltaT());
 
    std::vector<Vec3> rcValue = reactionCoordinate->value(atomCoordinates);
    for (int i = 0; i < macroVariable.size(); ++i) {
@@ -76,7 +78,7 @@ void ReferenceIndirectReconstructionDynamics::update(const OpenMM::System& syste
 	   rcValue[i][1] -= macroVariable[i][1];
 	   rcValue[i][2] -= macroVariable[i][2];
    }
-   std::vector<Vec3> rcGrad = reactionCoordinate->gradMatMul(rcValue);
+   std::vector<Vec3> rcGrad = reactionCoordinate->gradMatMul(atomCoordinates, rcValue);
 
    for (int i = 0; i < numberOfAtoms; ++i) {
        if (masses[i] != 0.0)
@@ -84,7 +86,6 @@ void ReferenceIndirectReconstructionDynamics::update(const OpenMM::System& syste
                xPrime[i][j] = atomCoordinates[i][j] + getDeltaT()*forces[i][j] - getDeltaT()*getLambda()*rcGrad[i][j] + noiseAmplitude*SimTKOpenMMUtilities::getNormallyDistributedRandomNumber();
            }
    }
-
 
    // Update the positions and velocities.
    double velocityScale = 1.0/getDeltaT();

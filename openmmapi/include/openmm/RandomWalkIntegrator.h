@@ -25,7 +25,7 @@ public:
 	 * @param temperature    the temperature of the heat bath (in Kelvin)
 	 * @param stepSize       the step size with which to integrate the system (in picoseconds)
 	 */
-	RandomWalkIntegrator(double temperature, double stepSize);
+	RandomWalkIntegrator(double temperature, double stepSize, double period=-1.);
 	/**
 	 * Get the temperature of the heat bath (in Kelvin).
 	 *
@@ -79,9 +79,9 @@ public:
 	/**
 	 * Get the previous state.
 	 */
-	State getPreviousState() const {
-		return prev_state;
-	}
+//	State getPreviousState() const {
+//		return prev_state;
+//	}
 
 	/**
 	 * Advance a simulation through time by taking a series of time steps.
@@ -114,6 +114,7 @@ protected:
 	 */
 	bool kineticEnergyRequiresForce() const;
 private:
+    double _period;
     double temperature;
     int randomNumberSeed;
     State prev_state;

@@ -53,6 +53,7 @@
 #include "ReferenceGayBerneForce.h"
 #include "ReferenceHarmonicBondIxn.h"
 #include "ReferenceIndirectReconstructionDynamics.h"
+#include "ReferenceDampedReconstructionDynamics.h"
 #include "ReferenceLangevinMiddleDynamics.h"
 #include "ReferenceLJCoulomb14.h"
 #include "ReferenceLJCoulombIxn.h"
@@ -2801,7 +2802,8 @@ void ReferenceIntegrateRandomWalkStepKernel::execute(ContextImpl& context, const
         dynamics = new ReferenceRandomWalkDynamics(
                 context.getSystem().getNumParticles(),
                 stepSize,
-                temperature);
+                temperature,
+                _period);
         dynamics->setReferenceConstraintAlgorithm(&extractConstraints(context));
         prevTemp = temperature;
         prevStepSize = stepSize;
@@ -2831,8 +2833,6 @@ void ReferenceIntegrateIndirectReconstructionStepKernel::initialize(const System
 void ReferenceIntegrateIndirectReconstructionStepKernel::execute(ContextImpl& context, const IndirectReconstructionIntegrator& integrator) {
     double temperature = integrator.getTemperature();
     double stepSize = integrator.getStepSize();
-    double lambda = integrator.getLambda();
-    ReactionCoordinate* rc = integrator.getReactionCoordinate();
     vector<Vec3>& posData = extractPositions(context);
     vector<Vec3>& velData = extractVelocities(context);
     vector<Vec3>& forceData = extractForces(context);
@@ -2846,13 +2846,13 @@ void ReferenceIntegrateIndirectReconstructionStepKernel::execute(ContextImpl& co
                 context.getSystem().getNumParticles(),
                 stepSize,
                 temperature,
-				rc,
+				reactionCoordinate,
 			    lambda);
         dynamics->setReferenceConstraintAlgorithm(&extractConstraints(context));
         prevTemp = temperature;
         prevStepSize = stepSize;
     }
-    dynamics->setMacroscopicVariable(integrator.getMacroscopicVariable());
+    dynamics->setMacroscopicVariable(macroscopicVariable);
     dynamics->update(context.getSystem(), posData, velData, forceData, masses, integrator.getConstraintTolerance());
     data.time += stepSize;
     data.stepCount++;
@@ -2861,3 +2861,50 @@ void ReferenceIntegrateIndirectReconstructionStepKernel::execute(ContextImpl& co
 double ReferenceIntegrateIndirectReconstructionStepKernel::computeKineticEnergy(ContextImpl& context, const IndirectReconstructionIntegrator& integrator) {
 	return computeShiftedKineticEnergy(context, masses, 0);;
 }
+
+ReferenceIntegrateDampedReconstructionStepKernel::~ReferenceIntegrateDampedReconstructionStepKernel() {
+    if (dynamics)
+        delete dynamics;
+}
+
+void ReferenceIntegrateDampedReconstructionStepKernel::initialize(const System& system, const DampedReconstructionIntegrator& integrator) {
+    int numParticles = system.getNumParticles();
+    masses.resize(numParticles);
+    for (int i = 0; i < numParticles; ++i)
+        masses[i] = system.getParticleMass(i);
+    SimTKOpenMMUtilities::setRandomNumberSeed((unsigned int) integrator.getRandomNumberSeed());
+}
+
+void ReferenceIntegrateDampedReconstructionStepKernel::execute(ContextImpl& context, const DampedReconstructionIntegrator& integrator) {
+    double temperature = integrator.getTemperature();
+    double stepSize = integrator.getStepSize();
+    vector<Vec3>& posData = extractPositions(context);
+    vector<Vec3>& velData = extractVelocities(context);
+    vector<Vec3>& forceData = extractForces(context);
+
+    if (dynamics == 0 || temperature != prevTemp || stepSize != prevStepSize) {
+        // Recreate the computation objects with the new parameters.
+
+        if (dynamics)
+            delete dynamics;
+        dynamics = new ReferenceDampedReconstructionDynamics(
+                context.getSystem().getNumParticles(),
+                stepSize,
+                temperature,
+                reactionCoordinate,
+                lambda,
+                gamma);
+        dynamics->setReferenceConstraintAlgorithm(&extractConstraints(context));
+        prevTemp = temperature;
+        prevStepSize = stepSize;
+    }
+    dynamics->setMacroscopicVariable(macroscopicVariable);
+    dynamics->update(context.getSystem(), posData, velData, forceData, masses, integrator.getConstraintTolerance());
+    data.time += stepSize;
+    data.stepCount++;
+}
+
+double ReferenceIntegrateDampedReconstructionStepKernel::computeKineticEnergy(ContextImpl& context, const DampedReconstructionIntegrator& integrator) {
+    return computeShiftedKineticEnergy(context, masses, 0);;
+}
+

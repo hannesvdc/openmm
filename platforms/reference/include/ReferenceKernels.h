@@ -68,6 +68,7 @@ class ReferenceVariableStochasticDynamics;
 class ReferenceVariableVerletDynamics;
 class ReferenceVerletDynamics;
 class ReferenceCustomDynamics;
+class ReferenceDampedReconstructionDynamics;
 
 /**
  * This kernel is invoked at the beginning and end of force and energy computations.  It gives the
@@ -1668,6 +1669,44 @@ private:
     std::vector<double> masses;
     double prevTemp, prevStepSize;
 };
+
+/**
+ * This kernel is invoked by DampedtReconstructionIntegrator to take one time step.
+ */
+class ReferenceIntegrateDampedReconstructionStepKernel : public IntegrateDampedReconstructionStepKernel {
+public:
+    ReferenceIntegrateDampedReconstructionStepKernel(std::string name, const Platform& platform, ReferencePlatform::PlatformData& data) : IntegrateDampedReconstructionStepKernel(name, platform),
+        data(data), dynamics(0) {
+    }
+    ~ReferenceIntegrateDampedReconstructionStepKernel();
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the DampedReconstructionIntegrator this kernel will be used for
+     */
+    void initialize(const System& system, const DampedReconstructionIntegrator& integrator);
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the DampedReconstructionIntegrator this kernel is being used for
+     */
+    void execute(ContextImpl& context, const DampedReconstructionIntegrator& integrator);
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the DampedReconstructionIntegrator this kernel is being used for
+     */
+    double computeKineticEnergy(ContextImpl& context, const DampedReconstructionIntegrator& integrator);
+private:
+    ReferencePlatform::PlatformData& data;
+    ReferenceDampedReconstructionDynamics* dynamics;
+    std::vector<double> masses;
+    double prevTemp, prevStepSize;
+};
+
 
 } // namespace OpenMM
 

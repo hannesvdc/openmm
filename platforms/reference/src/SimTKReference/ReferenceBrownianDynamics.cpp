@@ -31,6 +31,7 @@
 #include "openmm/OpenMMException.h"
 
 #include <cstdio>
+#include <iostream>
 
 using std::vector;
 using namespace OpenMM;
@@ -122,10 +123,10 @@ void ReferenceBrownianDynamics::update(const OpenMM::System& system, vector<Vec3
                xPrime[i][j] = atomCoordinates[i][j] + forceScale*inverseMasses[i]*forces[i][j] + noiseAmplitude*sqrt(inverseMasses[i])*SimTKOpenMMUtilities::getNormallyDistributedRandomNumber();
            }
    }
+
    ReferenceConstraintAlgorithm* referenceConstraintAlgorithm = getReferenceConstraintAlgorithm();
    if (referenceConstraintAlgorithm)
       referenceConstraintAlgorithm->apply(atomCoordinates, xPrime, inverseMasses, tolerance);
-   
    // Update the positions and velocities.
    
    double velocityScale = 1.0/getDeltaT();
