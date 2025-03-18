@@ -1,15 +1,14 @@
 import unittest
 from validateConstraints import *
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
-import simtk.openmm.app.element as elem
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
+import openmm.app.element as elem
 try:
-    from scipy.io import netcdf
+    from scipy.io import netcdf_file
     SCIPY_IMPORT_FAILED = False
-except:
+except ImportError:
     SCIPY_IMPORT_FAILED = True
-
 
 def compareByElement(array1, array2, cmp):
     for x, y in zip(array1, array2):

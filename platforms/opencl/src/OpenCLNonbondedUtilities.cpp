@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2009-2020 Stanford University and the Authors.      *
+ * Portions copyright (c) 2009-2023 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -41,56 +41,54 @@ using namespace std;
 
 class OpenCLNonbondedUtilities::BlockSortTrait : public OpenCLSort::SortTrait {
 public:
-    BlockSortTrait(bool useDouble) : useDouble(useDouble) {
-    }
-    int getDataSize() const {return useDouble ? sizeof(mm_double2) : sizeof(mm_float2);}
-    int getKeySize() const {return useDouble ? sizeof(cl_double) : sizeof(cl_float);}
-    const char* getDataType() const {return "real2";}
-    const char* getKeyType() const {return "real";}
-    const char* getMinKey() const {return "-MAXFLOAT";}
-    const char* getMaxKey() const {return "MAXFLOAT";}
-    const char* getMaxValue() const {return "(real2) (MAXFLOAT, MAXFLOAT)";}
-    const char* getSortKey() const {return "value.x";}
-private:
-    bool useDouble;
+    BlockSortTrait() {}
+    int getDataSize() const {return sizeof(int);}
+    int getKeySize() const {return sizeof(int);}
+    const char* getDataType() const {return "unsigned int";}
+    const char* getKeyType() const {return "unsigned int";}
+    const char* getMinKey() const {return "0";}
+    const char* getMaxKey() const {return "0xFFFFFFFFu";}
+    const char* getMaxValue() const {return "0xFFFFFFFFu";}
+    const char* getSortKey() const {return "value";}
 };
 
-OpenCLNonbondedUtilities::OpenCLNonbondedUtilities(OpenCLContext& context) : context(context), useCutoff(false), usePeriodic(false), anyExclusions(false), usePadding(true),
-        numForceBuffers(0), blockSorter(NULL), pinnedCountBuffer(NULL), pinnedCountMemory(NULL), forceRebuildNeighborList(true), lastCutoff(0.0), groupFlags(0) {
+OpenCLNonbondedUtilities::OpenCLNonbondedUtilities(OpenCLContext& context) : context(context), useCutoff(false), usePeriodic(false), useNeighborList(false), anyExclusions(false), usePadding(true),
+        blockSorter(NULL), pinnedCountBuffer(NULL), pinnedCountMemory(NULL), forceRebuildNeighborList(true), lastCutoff(0.0), groupFlags(0), tilesAfterReorder(0) {
     // Decide how many thread blocks and force buffers to use.
 
     deviceIsCpu = (context.getDevice().getInfo<CL_DEVICE_TYPE>() == CL_DEVICE_TYPE_CPU);
     if (deviceIsCpu) {
         numForceThreadBlocks = context.getNumThreadBlocks();
         forceThreadBlockSize = 1;
-        numForceBuffers = numForceThreadBlocks;
     }
     else if (context.getSIMDWidth() == 32) {
-        if (context.getSupports64BitGlobalAtomics()) {
-            numForceThreadBlocks = 4*context.getDevice().getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
-            forceThreadBlockSize = 256;
-            // Even though using longForceBuffer, still need a single forceBuffer for the reduceForces kernel to convert the long results into float4 which will be used by later kernels.
-            numForceBuffers = 1;
+        int blocksPerComputeUnit = 4;
+        std::string vendor = context.getDevice().getInfo<CL_DEVICE_VENDOR>();
+        if (vendor.size() >= 5 && vendor.substr(0, 5) == "Apple") {
+            // 1536 threads per GPU core.
+            blocksPerComputeUnit = 6;
         }
-        else {
-            numForceThreadBlocks = 3*context.getDevice().getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
-            forceThreadBlockSize = 256;
-            numForceBuffers = numForceThreadBlocks*forceThreadBlockSize/OpenCLContext::TileSize;
-        }
+        numForceThreadBlocks = blocksPerComputeUnit*context.getDevice().getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+        forceThreadBlockSize = 256;
     }
     else {
         numForceThreadBlocks = context.getNumThreadBlocks();
         forceThreadBlockSize = (context.getSIMDWidth() >= 32 ? OpenCLContext::ThreadBlockSize : 32);
-        if (context.getSupports64BitGlobalAtomics()) {
-            // Even though using longForceBuffer, still need a single forceBuffer for the reduceForces kernel to convert the long results into float4 which will be used by later kernels.
-            numForceBuffers = 1;
-        }
-        else {
-            numForceBuffers = numForceThreadBlocks*forceThreadBlockSize/OpenCLContext::TileSize;
-        }
     }
-    pinnedCountBuffer = new cl::Buffer(context.getContext(), CL_MEM_ALLOC_HOST_PTR, sizeof(int));
-    pinnedCountMemory = (int*) context.getQueue().enqueueMapBuffer(*pinnedCountBuffer, CL_TRUE, CL_MAP_READ, 0, sizeof(int));
+    pinnedCountBuffer = new cl::Buffer(context.getContext(), CL_MEM_ALLOC_HOST_PTR, sizeof(unsigned int));
+    pinnedCountMemory = (unsigned int*) context.getQueue().enqueueMapBuffer(*pinnedCountBuffer, CL_TRUE, CL_MAP_READ, 0, sizeof(int));
+    
+    // When building the neighbor list, we can optionally use large blocks (1024 atoms) to
+    // accelerate the process.  This makes building the neighbor list faster, but it prevents
+    // us from sorting atom blocks by size, which leads to a slightly less efficient neighbor
+    // list.  We guess based on system size which will be faster.
+
+    useLargeBlocks = (!deviceIsCpu && context.getNumAtoms() > 100000);
+
+    std::string vendor = context.getDevice().getInfo<CL_DEVICE_VENDOR>();
+    isAMD = !deviceIsCpu && ((vendor.size() >= 3 && vendor.substr(0, 3) == "AMD") || (vendor.size() >= 28 && vendor.substr(0, 28) == "Advanced Micro Devices, Inc."));
+
+    setKernelSource(deviceIsCpu ? OpenCLKernelSources::nonbonded_cpu : OpenCLKernelSources::nonbonded);
 }
 
 OpenCLNonbondedUtilities::~OpenCLNonbondedUtilities() {
@@ -100,7 +98,7 @@ OpenCLNonbondedUtilities::~OpenCLNonbondedUtilities() {
         delete pinnedCountBuffer;
 }
 
-void OpenCLNonbondedUtilities::addInteraction(bool usesCutoff, bool usesPeriodic, bool usesExclusions, double cutoffDistance, const vector<vector<int> >& exclusionList, const string& kernel, int forceGroup) {
+void OpenCLNonbondedUtilities::addInteraction(bool usesCutoff, bool usesPeriodic, bool usesExclusions, double cutoffDistance, const vector<vector<int> >& exclusionList, const string& kernel, int forceGroup, bool useNeighborList) {
     if (groupCutoff.size() > 0) {
         if (usesCutoff != useCutoff)
             throw OpenMMException("All Forces must agree on whether to use a cutoff");
@@ -113,6 +111,7 @@ void OpenCLNonbondedUtilities::addInteraction(bool usesCutoff, bool usesPeriodic
         requestExclusions(exclusionList);
     useCutoff = usesCutoff;
     usePeriodic = usesPeriodic;
+    this->useNeighborList |= ((useNeighborList || deviceIsCpu) && useCutoff);
     groupCutoff[forceGroup] = cutoffDistance;
     groupFlags |= 1<<forceGroup;
     if (kernel.size() > 0) {
@@ -127,7 +126,7 @@ void OpenCLNonbondedUtilities::addInteraction(bool usesCutoff, bool usesPeriodic
 
 void OpenCLNonbondedUtilities::addParameter(ComputeParameterInfo parameter) {
     parameters.push_back(ParameterInfo(parameter.getName(), parameter.getComponentType(), parameter.getNumComponents(),
-            parameter.getSize(), context.unwrap(parameter.getArray()).getDeviceBuffer()));
+            parameter.getSize(), context.unwrap(parameter.getArray()).getDeviceBuffer(), parameter.isConstant()));
 }
 
 void OpenCLNonbondedUtilities::addParameter(const ParameterInfo& parameter) {
@@ -136,7 +135,7 @@ void OpenCLNonbondedUtilities::addParameter(const ParameterInfo& parameter) {
 
 void OpenCLNonbondedUtilities::addArgument(ComputeParameterInfo parameter) {
     arguments.push_back(ParameterInfo(parameter.getName(), parameter.getComponentType(), parameter.getNumComponents(),
-            parameter.getSize(), context.unwrap(parameter.getArray()).getDeviceBuffer()));
+            parameter.getSize(), context.unwrap(parameter.getArray()).getDeviceBuffer(), parameter.isConstant()));
 }
 
 void OpenCLNonbondedUtilities::addArgument(const ParameterInfo& parameter) {
@@ -226,7 +225,7 @@ void OpenCLNonbondedUtilities::initialize(const System& system) {
     vector<mm_int2> exclusionTilesVec;
     for (set<pair<int, int> >::const_iterator iter = tilesWithExclusions.begin(); iter != tilesWithExclusions.end(); ++iter)
         exclusionTilesVec.push_back(mm_int2(iter->first, iter->second));
-    sort(exclusionTilesVec.begin(), exclusionTilesVec.end(), context.getSIMDWidth() <= 32 ? compareInt2 : compareInt2LargeSIMD);
+    sort(exclusionTilesVec.begin(), exclusionTilesVec.end(), context.getSIMDWidth() <= 32 || !useNeighborList ? compareInt2 : compareInt2LargeSIMD);
     exclusionTiles.initialize<mm_int2>(context, exclusionTilesVec.size(), "exclusionTiles");
     exclusionTiles.upload(exclusionTilesVec);
     map<pair<int, int>, int> exclusionTileMap;
@@ -299,12 +298,16 @@ void OpenCLNonbondedUtilities::initialize(const System& system) {
         int elementSize = (context.getUseDoublePrecision() ? sizeof(cl_double) : sizeof(cl_float));
         blockCenter.initialize(context, numAtomBlocks, 4*elementSize, "blockCenter");
         blockBoundingBox.initialize(context, numAtomBlocks, 4*elementSize, "blockBoundingBox");
-        sortedBlocks.initialize(context, numAtomBlocks, 2*elementSize, "sortedBlocks");
+        sortedBlocks.initialize<cl_uint>(context, numAtomBlocks, "sortedBlocks");
         sortedBlockCenter.initialize(context, numAtomBlocks+1, 4*elementSize, "sortedBlockCenter");
         sortedBlockBoundingBox.initialize(context, numAtomBlocks+1, 4*elementSize, "sortedBlockBoundingBox");
+        numBlockSizes = min((context.getNumAtomBlocks()+63)/64, context.getNumThreadBlocks());
+        blockSizeRange.initialize(context, numBlockSizes, 2*elementSize, "blockSizeRange");
+        largeBlockCenter.initialize(context, numAtomBlocks, 4*elementSize, "largeBlockCenter");
+        largeBlockBoundingBox.initialize(context, numAtomBlocks, 4*elementSize, "largeBlockBoundingBox");
         oldPositions.initialize(context, numAtoms, 4*elementSize, "oldPositions");
         rebuildNeighborList.initialize<int>(context, 1, "rebuildNeighborList");
-        blockSorter = new OpenCLSort(context, new BlockSortTrait(context.getUseDoublePrecision()), numAtomBlocks);
+        blockSorter = new OpenCLSort(context, new BlockSortTrait(), numAtomBlocks, false);
         vector<cl_uint> count(1, 0);
         interactionCount.upload(count);
         rebuildNeighborList.upload(count);
@@ -345,24 +348,27 @@ void OpenCLNonbondedUtilities::prepareInteractions(int forceGroups) {
         return;
     if (groupKernels.find(forceGroups) == groupKernels.end())
         createKernelsForGroups(forceGroups);
-    if (!useCutoff)
-        return;
-    if (numTiles == 0)
-        return;
     KernelSet& kernels = groupKernels[forceGroups];
-    if (usePeriodic) {
+    if (useCutoff && usePeriodic) {
         mm_float4 box = context.getPeriodicBoxSize();
         double minAllowedSize = 1.999999*kernels.cutoffDistance;
         if (box.x < minAllowedSize || box.y < minAllowedSize || box.z < minAllowedSize)
             throw OpenMMException("The periodic box size has decreased to less than twice the nonbonded cutoff.");
     }
+    if (!useNeighborList)
+        return;
+    if (numTiles == 0)
+        return;
 
     // Compute the neighbor list.
 
     if (lastCutoff != kernels.cutoffDistance)
         forceRebuildNeighborList = true;
     setPeriodicBoxArgs(context, kernels.findBlockBoundsKernel, 1);
-    context.executeKernel(kernels.findBlockBoundsKernel, context.getNumAtoms());
+    context.executeKernel(kernels.findBlockBoundsKernel, context.getNumAtomBlocks());
+    context.executeKernel(kernels.computeSortKeysKernel, context.getNumAtomBlocks());
+    if (useLargeBlocks)
+        setPeriodicBoxArgs(context, kernels.sortBoxDataKernel, 12);
     blockSorter->sort(sortedBlocks);
     kernels.sortBoxDataKernel.setArg<cl_int>(9, forceRebuildNeighborList);
     context.executeKernel(kernels.sortBoxDataKernel, context.getNumAtoms());
@@ -370,7 +376,15 @@ void OpenCLNonbondedUtilities::prepareInteractions(int forceGroups) {
     context.executeKernel(kernels.findInteractingBlocksKernel, context.getNumAtoms(), interactingBlocksThreadBlockSize);
     forceRebuildNeighborList = false;
     lastCutoff = kernels.cutoffDistance;
-    context.getQueue().enqueueReadBuffer(interactionCount.getDeviceBuffer(), CL_FALSE, 0, sizeof(int), pinnedCountMemory, NULL, &downloadCountEvent); 
+    context.getQueue().enqueueReadBuffer(interactionCount.getDeviceBuffer(), CL_FALSE, 0, sizeof(int), pinnedCountMemory, NULL, &downloadCountEvent);
+    if (isAMD)
+        context.getQueue().flush();
+
+    #if __APPLE__ && defined(__aarch64__)
+    // Segment the command stream to avoid stalls later.
+    if (groupKernels[forceGroups].hasForces)
+        context.getQueue().flush();
+    #endif
 }
 
 void OpenCLNonbondedUtilities::computeInteractions(int forceGroups, bool includeForces, bool includeEnergy) {
@@ -378,6 +392,8 @@ void OpenCLNonbondedUtilities::computeInteractions(int forceGroups, bool include
         return;
     KernelSet& kernels = groupKernels[forceGroups];
     if (kernels.hasForces) {
+        if (isAMD)
+            context.getQueue().flush();
         cl::Kernel& kernel = (includeForces ? (includeEnergy ? kernels.forceEnergyKernel : kernels.forceKernel) : kernels.energyKernel);
         if (*reinterpret_cast<cl_kernel*>(&kernel) == NULL)
             kernel = createInteractionKernel(kernels.source, parameters, arguments, true, true, forceGroups, includeForces, includeEnergy);
@@ -385,7 +401,12 @@ void OpenCLNonbondedUtilities::computeInteractions(int forceGroups, bool include
             setPeriodicBoxArgs(context, kernel, 9);
         context.executeKernel(kernel, numForceThreadBlocks*forceThreadBlockSize, forceThreadBlockSize);
     }
-    if (useCutoff && numTiles > 0) {
+    if (useNeighborList && numTiles > 0) {
+        #if __APPLE__ && defined(__aarch64__)
+        // Ensure cached up work executes while you're waiting.
+        if (kernels.hasForces)
+            context.getQueue().flush();
+        #endif
         downloadCountEvent.wait();
         updateNeighborListSize();
     }
@@ -394,18 +415,23 @@ void OpenCLNonbondedUtilities::computeInteractions(int forceGroups, bool include
 bool OpenCLNonbondedUtilities::updateNeighborListSize() {
     if (!useCutoff)
         return false;
-    if (pinnedCountMemory[0] <= (unsigned int) interactingTiles.getSize())
+    if (context.getStepsSinceReorder() == 0 || tilesAfterReorder == 0)
+        tilesAfterReorder = pinnedCountMemory[0];
+    else if (context.getStepsSinceReorder() > 25 && pinnedCountMemory[0] > 1.1*tilesAfterReorder)
+        context.forceReorder();
+    if (pinnedCountMemory[0] <= interactingTiles.getSize())
         return false;
 
     // The most recent timestep had too many interactions to fit in the arrays.  Make the arrays bigger to prevent
     // this from happening in the future.
 
-    int maxTiles = (int) (1.2*pinnedCountMemory[0]);
-    int totalTiles = context.getNumAtomBlocks()*(context.getNumAtomBlocks()+1)/2;
+    unsigned int maxTiles = (unsigned int) (1.2*pinnedCountMemory[0]);
+    unsigned int numBlocks = context.getNumAtomBlocks();
+    int totalTiles = numBlocks*(numBlocks+1)/2;
     if (maxTiles > totalTiles)
         maxTiles = totalTiles;
     interactingTiles.resize(maxTiles);
-    interactingAtoms.resize(OpenCLContext::TileSize*maxTiles);
+    interactingAtoms.resize(OpenCLContext::TileSize*(size_t) maxTiles);
     for (map<int, KernelSet>::iterator iter = groupKernels.begin(); iter != groupKernels.end(); ++iter) {
         KernelSet& kernels = iter->second;
         if (*reinterpret_cast<cl_kernel*>(&kernels.forceKernel) != NULL) {
@@ -495,8 +521,15 @@ void OpenCLNonbondedUtilities::createKernelsForGroups(int groups) {
             defines["USE_PERIODIC"] = "1";
         if (context.getBoxIsTriclinic())
             defines["TRICLINIC"] = "1";
+        if (useLargeBlocks)
+            defines["USE_LARGE_BLOCKS"] = "1";
         defines["MAX_EXCLUSIONS"] = context.intToString(maxExclusions);
         defines["BUFFER_GROUPS"] = (deviceIsCpu ? "4" : "2");
+        int binShift = 1;
+        while (1<<binShift <= context.getNumAtomBlocks())
+            binShift++;
+        defines["BIN_SHIFT"] = context.intToString(binShift);
+        defines["BLOCK_INDEX_MASK"] = context.intToString((1<<binShift)-1);
         string file = (deviceIsCpu ? OpenCLKernelSources::findInteractingBlocks_cpu : OpenCLKernelSources::findInteractingBlocks);
         int groupSize = (deviceIsCpu || context.getSIMDWidth() < 32 ? 32 : 256);
         while (true) {
@@ -508,7 +541,12 @@ void OpenCLNonbondedUtilities::createKernelsForGroups(int groups) {
             kernels.findBlockBoundsKernel.setArg<cl::Buffer>(7, blockCenter.getDeviceBuffer());
             kernels.findBlockBoundsKernel.setArg<cl::Buffer>(8, blockBoundingBox.getDeviceBuffer());
             kernels.findBlockBoundsKernel.setArg<cl::Buffer>(9, rebuildNeighborList.getDeviceBuffer());
-            kernels.findBlockBoundsKernel.setArg<cl::Buffer>(10, sortedBlocks.getDeviceBuffer());
+            kernels.findBlockBoundsKernel.setArg<cl::Buffer>(10, blockSizeRange.getDeviceBuffer());
+            kernels.computeSortKeysKernel = cl::Kernel(interactingBlocksProgram, "computeSortKeys");
+            kernels.computeSortKeysKernel.setArg<cl::Buffer>(0, blockBoundingBox.getDeviceBuffer());
+            kernels.computeSortKeysKernel.setArg<cl::Buffer>(1, sortedBlocks.getDeviceBuffer());
+            kernels.computeSortKeysKernel.setArg<cl::Buffer>(2, blockSizeRange.getDeviceBuffer());
+            kernels.computeSortKeysKernel.setArg<cl_int>(3, numBlockSizes);
             kernels.sortBoxDataKernel = cl::Kernel(interactingBlocksProgram, "sortBoxData");
             kernels.sortBoxDataKernel.setArg<cl::Buffer>(0, sortedBlocks.getDeviceBuffer());
             kernels.sortBoxDataKernel.setArg<cl::Buffer>(1, blockCenter.getDeviceBuffer());
@@ -520,6 +558,10 @@ void OpenCLNonbondedUtilities::createKernelsForGroups(int groups) {
             kernels.sortBoxDataKernel.setArg<cl::Buffer>(7, interactionCount.getDeviceBuffer());
             kernels.sortBoxDataKernel.setArg<cl::Buffer>(8, rebuildNeighborList.getDeviceBuffer());
             kernels.sortBoxDataKernel.setArg<cl_int>(9, true);
+            if (useLargeBlocks) {
+                kernels.sortBoxDataKernel.setArg<cl::Buffer>(10, largeBlockCenter.getDeviceBuffer());
+                kernels.sortBoxDataKernel.setArg<cl::Buffer>(11, largeBlockBoundingBox.getDeviceBuffer());
+            }
             kernels.findInteractingBlocksKernel = cl::Kernel(interactingBlocksProgram, "findBlocksWithInteractions");
             kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(5, interactionCount.getDeviceBuffer());
             kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(6, interactingTiles.getDeviceBuffer());
@@ -535,6 +577,10 @@ void OpenCLNonbondedUtilities::createKernelsForGroups(int groups) {
             kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(16, exclusionRowIndices.getDeviceBuffer());
             kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(17, oldPositions.getDeviceBuffer());
             kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(18, rebuildNeighborList.getDeviceBuffer());
+            if (useLargeBlocks) {
+                kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(19, largeBlockCenter.getDeviceBuffer());
+                kernels.findInteractingBlocksKernel.setArg<cl::Buffer>(20, largeBlockBoundingBox.getDeviceBuffer());
+            }
             if (kernels.findInteractingBlocksKernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(context.getDevice()) < groupSize) {
                 // The device can't handle this block size, so reduce it.
 
@@ -556,97 +602,108 @@ cl::Kernel OpenCLNonbondedUtilities::createInteractionKernel(const string& sourc
     const string suffixes[] = {"x", "y", "z", "w"};
     stringstream localData;
     int localDataSize = 0;
-    for (int i = 0; i < (int) params.size(); i++) {
-        if (params[i].getNumComponents() == 1)
-            localData<<params[i].getType()<<" "<<params[i].getName()<<";\n";
+    for (const ParameterInfo& param : params) {
+        if (param.getNumComponents() == 1)
+            localData<<param.getType()<<" "<<param.getName()<<";\n";
         else {
-            for (int j = 0; j < params[i].getNumComponents(); ++j)
-                localData<<params[i].getComponentType()<<" "<<params[i].getName()<<"_"<<suffixes[j]<<";\n";
+            for (int j = 0; j < param.getNumComponents(); ++j)
+                localData<<param.getComponentType()<<" "<<param.getName()<<"_"<<suffixes[j]<<";\n";
         }
-        localDataSize += params[i].getSize();
+        localDataSize += param.getSize();
     }
     replacements["ATOM_PARAMETER_DATA"] = localData.str();
     stringstream args;
-    for (int i = 0; i < (int) params.size(); i++) {
-        args << ", __global const ";
-        args << params[i].getType();
+    for (const ParameterInfo& param : params) {
+        args << ", __global ";
+        if (param.isConstant())
+            args << "const ";
+        if (param.getNumComponents() == 3)
+            args << param.getComponentType();
+        else
+            args << param.getType();
         args << "* restrict global_";
-        args << params[i].getName();
+        args << param.getName();
     }
-    for (int i = 0; i < (int) arguments.size(); i++) {
-        if (arguments[i].getMemory().getInfo<CL_MEM_TYPE>() == CL_MEM_OBJECT_IMAGE2D) {
+    for (const ParameterInfo& arg : arguments) {
+        if (arg.getMemory().getInfo<CL_MEM_TYPE>() == CL_MEM_OBJECT_IMAGE2D) {
             args << ", __read_only image2d_t ";
-            args << arguments[i].getName();
+            args << arg.getName();
         }
         else {
-            if ((arguments[i].getMemory().getInfo<CL_MEM_FLAGS>() & CL_MEM_READ_ONLY) == 0)
-                args << ", __global const ";
+            if ((arg.getMemory().getInfo<CL_MEM_FLAGS>() & CL_MEM_READ_ONLY) == 0) {
+                args << ", __global ";
+                if (arg.isConstant())
+                    args << "const ";
+            }
             else
                 args << ", __constant ";
-            args << arguments[i].getType();
+            args << arg.getType();
             args << "* restrict ";
-            args << arguments[i].getName();
+            args << arg.getName();
         }
     }
     if (energyParameterDerivatives.size() > 0)
         args << ", __global mixed* restrict energyParamDerivs";
     replacements["PARAMETER_ARGUMENTS"] = args.str();
     stringstream loadLocal1;
-    for (int i = 0; i < (int) params.size(); i++) {
-        if (params[i].getNumComponents() == 1) {
-            loadLocal1<<"localData[localAtomIndex]."<<params[i].getName()<<" = "<<params[i].getName()<<"1;\n";
+    for (const ParameterInfo& param : params) {
+        if (param.getNumComponents() == 1) {
+            loadLocal1<<"localData[localAtomIndex]."<<param.getName()<<" = "<<param.getName()<<"1;\n";
         }
         else {
-            for (int j = 0; j < params[i].getNumComponents(); ++j)
-                loadLocal1<<"localData[localAtomIndex]."<<params[i].getName()<<"_"<<suffixes[j]<<" = "<<params[i].getName()<<"1."<<suffixes[j]<<";\n";
+            for (int j = 0; j < param.getNumComponents(); ++j)
+                loadLocal1<<"localData[localAtomIndex]."<<param.getName()<<"_"<<suffixes[j]<<" = "<<param.getName()<<"1."<<suffixes[j]<<";\n";
         }
     }
     replacements["LOAD_LOCAL_PARAMETERS_FROM_1"] = loadLocal1.str();
+    replacements["DECLARE_LOCAL_PARAMETERS"] = "";
     stringstream loadLocal2;
-    for (int i = 0; i < (int) params.size(); i++) {
-        if (params[i].getNumComponents() == 1) {
-            loadLocal2<<"localData[localAtomIndex]."<<params[i].getName()<<" = global_"<<params[i].getName()<<"[j];\n";
+    for (const ParameterInfo& param : params) {
+        if (param.getNumComponents() == 1) {
+            loadLocal2<<"localData[localAtomIndex]."<<param.getName()<<" = global_"<<param.getName()<<"[j];\n";
         }
         else {
-            loadLocal2<<params[i].getType()<<" temp_"<<params[i].getName()<<" = global_"<<params[i].getName()<<"[j];\n";
-            for (int j = 0; j < params[i].getNumComponents(); ++j)
-                loadLocal2<<"localData[localAtomIndex]."<<params[i].getName()<<"_"<<suffixes[j]<<" = temp_"<<params[i].getName()<<"."<<suffixes[j]<<";\n";
+            if (param.getNumComponents() == 3)
+                loadLocal2<<param.getType()<<" temp_"<<param.getName()<<" = make_"<<param.getType()<<"(global_"<<param.getName()<<"[3*j], global_"<<param.getName()<<"[3*j+1], global_"<<param.getName()<<"[3*j+2]);\n";
+            else
+                loadLocal2<<param.getType()<<" temp_"<<param.getName()<<" = global_"<<param.getName()<<"[j];\n";
+            for (int j = 0; j < param.getNumComponents(); ++j)
+                loadLocal2<<"localData[localAtomIndex]."<<param.getName()<<"_"<<suffixes[j]<<" = temp_"<<param.getName()<<"."<<suffixes[j]<<";\n";
         }
     }
     replacements["LOAD_LOCAL_PARAMETERS_FROM_GLOBAL"] = loadLocal2.str();
     stringstream load1;
-    for (int i = 0; i < (int) params.size(); i++) {
-        load1 << params[i].getType();
-        load1 << " ";
-        load1 << params[i].getName();
-        load1 << "1 = global_";
-        load1 << params[i].getName();
-        load1 << "[atom1];\n";
+    for (const ParameterInfo& param : params) {
+        load1<<param.getType()<<" "<<param.getName()<<"1 = ";
+        if (param.getNumComponents() == 3)
+            load1<<"make_"<<param.getType()<<"(global_"<<param.getName()<<"[3*atom1], global_"<<param.getName()<<"[3*atom1+1], global_"<<param.getName()<<"[3*atom1+2]);\n";
+        else
+            load1<<"global_"<<param.getName()<<"[atom1];\n";
     }
     replacements["LOAD_ATOM1_PARAMETERS"] = load1.str();
     stringstream load2j;
-    for (int i = 0; i < (int) params.size(); i++) {
-        if (params[i].getNumComponents() == 1) {
-            load2j<<params[i].getType()<<" "<<params[i].getName()<<"2 = localData[atom2]."<<params[i].getName()<<";\n";
+    for (const ParameterInfo& param : params) {
+        if (param.getNumComponents() == 1) {
+            load2j<<param.getType()<<" "<<param.getName()<<"2 = localData[atom2]."<<param.getName()<<";\n";
         }
         else {
-            load2j<<params[i].getType()<<" "<<params[i].getName()<<"2 = ("<<params[i].getType()<<") (";
-            for (int j = 0; j < params[i].getNumComponents(); ++j) {
+            load2j<<param.getType()<<" "<<param.getName()<<"2 = ("<<param.getType()<<") (";
+            for (int j = 0; j < param.getNumComponents(); ++j) {
                 if (j > 0)
                     load2j<<", ";
-                load2j<<"localData[atom2]."<<params[i].getName()<<"_"<<suffixes[j];
+                load2j<<"localData[atom2]."<<param.getName()<<"_"<<suffixes[j];
             }
             load2j<<");\n";
         }
     }
     replacements["LOAD_ATOM2_PARAMETERS"] = load2j.str();
     stringstream clearLocal;
-    for (int i = 0; i < (int) params.size(); i++) {
-        if (params[i].getNumComponents() == 1)
-            clearLocal<<"localData[localAtomIndex]."<<params[i].getName()<<" = 0;\n";
+    for (const ParameterInfo& param : params) {
+        if (param.getNumComponents() == 1)
+            clearLocal<<"localData[localAtomIndex]."<<param.getName()<<" = 0;\n";
         else
-            for (int j = 0; j < params[i].getNumComponents(); ++j)
-                clearLocal<<"localData[localAtomIndex]."<<params[i].getName()<<"_"<<suffixes[j]<<" = 0;\n";
+            for (int j = 0; j < param.getNumComponents(); ++j)
+                clearLocal<<"localData[localAtomIndex]."<<param.getName()<<"_"<<suffixes[j]<<" = 0;\n";
     }
     replacements["CLEAR_LOCAL_PARAMETERS"] = clearLocal.str();
     stringstream initDerivs;
@@ -659,7 +716,7 @@ cl::Kernel OpenCLNonbondedUtilities::createInteractionKernel(const string& sourc
     for (int i = 0; i < energyParameterDerivatives.size(); i++)
         for (int index = 0; index < numDerivs; index++)
             if (allParamDerivNames[index] == energyParameterDerivatives[i])
-                saveDerivs<<"energyParamDerivs[get_global_id(0)*"<<numDerivs<<"+"<<index<<"] += energyParamDeriv"<<i<<";\n";
+                saveDerivs<<"energyParamDerivs[GLOBAL_ID*"<<numDerivs<<"+"<<index<<"] += energyParamDeriv"<<i<<";\n";
     replacements["SAVE_DERIVATIVES"] = saveDerivs.str();
     map<string, string> defines;
     if (useCutoff)
@@ -670,12 +727,15 @@ cl::Kernel OpenCLNonbondedUtilities::createInteractionKernel(const string& sourc
         defines["USE_EXCLUSIONS"] = "1";
     if (isSymmetric)
         defines["USE_SYMMETRIC"] = "1";
+    if (useNeighborList)
+        defines["USE_NEIGHBOR_LIST"] = "1";
     if (useCutoff && context.getSIMDWidth() < 32)
         defines["PRUNE_BY_CUTOFF"] = "1";
     if (includeForces)
         defines["INCLUDE_FORCES"] = "1";
     if (includeEnergy)
         defines["INCLUDE_ENERGY"] = "1";
+    defines["THREAD_BLOCK_SIZE"] = context.intToString(forceThreadBlockSize);
     defines["FORCE_WORK_GROUP_SIZE"] = context.intToString(forceThreadBlockSize);
     double maxCutoff = 0.0;
     for (int i = 0; i < 32; i++) {
@@ -700,21 +760,13 @@ cl::Kernel OpenCLNonbondedUtilities::createInteractionKernel(const string& sourc
     defines["LAST_EXCLUSION_TILE"] = context.intToString(endExclusionIndex);
     if ((localDataSize/4)%2 == 0)
         defines["PARAMETER_SIZE_IS_EVEN"] = "1";
-    string file;
-    if (deviceIsCpu)
-        file = OpenCLKernelSources::nonbonded_cpu;
-    else
-        file = OpenCLKernelSources::nonbonded;
-    cl::Program program = context.createProgram(context.replaceStrings(file, replacements), defines);
+    cl::Program program = context.createProgram(context.replaceStrings(kernelSource, replacements), defines);
     cl::Kernel kernel(program, "computeNonbonded");
 
     // Set arguments to the Kernel.
 
     int index = 0;
-    if (context.getSupports64BitGlobalAtomics())
-        kernel.setArg<cl::Memory>(index++, context.getLongForceBuffer().getDeviceBuffer());
-    else
-        kernel.setArg<cl::Buffer>(index++, context.getForceBuffers().getDeviceBuffer());
+    kernel.setArg<cl::Memory>(index++, context.getLongForceBuffer().getDeviceBuffer());
     kernel.setArg<cl::Buffer>(index++, context.getEnergyBuffer().getDeviceBuffer());
     kernel.setArg<cl::Buffer>(index++, context.getPosq().getDeviceBuffer());
     kernel.setArg<cl::Buffer>(index++, exclusions.getDeviceBuffer());
@@ -730,13 +782,15 @@ cl::Kernel OpenCLNonbondedUtilities::createInteractionKernel(const string& sourc
         kernel.setArg<cl::Buffer>(index++, blockBoundingBox.getDeviceBuffer());
         kernel.setArg<cl::Buffer>(index++, interactingAtoms.getDeviceBuffer());
     }
-    for (int i = 0; i < (int) params.size(); i++) {
-        kernel.setArg<cl::Memory>(index++, params[i].getMemory());
-    }
-    for (int i = 0; i < (int) arguments.size(); i++) {
-        kernel.setArg<cl::Memory>(index++, arguments[i].getMemory());
-    }
+    for (const ParameterInfo& param : params)
+        kernel.setArg<cl::Memory>(index++, param.getMemory());
+    for (const ParameterInfo& arg : arguments)
+        kernel.setArg<cl::Memory>(index++, arg.getMemory());
     if (energyParameterDerivatives.size() > 0)
         kernel.setArg<cl::Memory>(index++, context.getEnergyParamDerivBuffer().getDeviceBuffer());
     return kernel;
+}
+
+void OpenCLNonbondedUtilities::setKernelSource(const string& source) {
+    kernelSource = source;
 }

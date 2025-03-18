@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2010-2020 Stanford University and the Authors.      *
+ * Portions copyright (c) 2010-2023 Stanford University and the Authors.      *
  * Authors: Peter Eastman, Lee-Ping Wang                                      *
  * Contributors:                                                              *
  *                                                                            *
@@ -41,8 +41,7 @@
 #include <algorithm>
 
 using namespace OpenMM;
-using namespace OpenMM_SFMT;
-using std::vector;
+using namespace std;
 
 MonteCarloMembraneBarostatImpl::MonteCarloMembraneBarostatImpl(const MonteCarloMembraneBarostat& owner) : owner(owner), step(0) {
 }
@@ -63,7 +62,7 @@ void MonteCarloMembraneBarostatImpl::initialize(ContextImpl& context) {
     SimTKOpenMMUtilities::setRandomNumberSeed(owner.getRandomNumberSeed());
 }
 
-void MonteCarloMembraneBarostatImpl::updateContextState(ContextImpl& context) {
+void MonteCarloMembraneBarostatImpl::updateContextState(ContextImpl& context, bool& forcesInvalid) {
     if (++step < owner.getFrequency() || owner.getFrequency() == 0)
         return;
     step = 0;
@@ -109,25 +108,27 @@ void MonteCarloMembraneBarostatImpl::updateContextState(ContextImpl& context) {
         deltaVolume = 0;
     }
     double deltaArea = box[0][0]*lengthScale[0]*box[1][1]*lengthScale[1] - box[0][0]*box[1][1];
-    kernel.getAs<ApplyMonteCarloBarostatKernel>().scaleCoordinates(context, lengthScale[0], lengthScale[1], lengthScale[2]);
+    kernel.getAs<ApplyMonteCarloBarostatKernel>().saveCoordinates(context);
     context.getOwner().setPeriodicBoxVectors(Vec3(box[0][0]*lengthScale[0], box[0][1]*lengthScale[1], box[0][2]*lengthScale[2]),
                                              Vec3(box[1][0]*lengthScale[0], box[1][1]*lengthScale[1], box[1][2]*lengthScale[2]),
                                              Vec3(box[2][0]*lengthScale[0], box[2][1]*lengthScale[1], box[2][2]*lengthScale[2]));
-    
+    kernel.getAs<ApplyMonteCarloBarostatKernel>().scaleCoordinates(context, lengthScale[0], lengthScale[1], lengthScale[2]);
+
     // Compute the energy of the modified system.
-    
+
     double finalEnergy = context.getOwner().getState(State::Energy, false, groups).getPotentialEnergy();
     double kT = BOLTZ*context.getParameter(MonteCarloMembraneBarostat::Temperature());
-    double w = finalEnergy-initialEnergy + pressure*deltaVolume - tension*deltaArea - context.getMolecules().size()*kT*std::log(newVolume/volume);
-    if (w > 0 && SimTKOpenMMUtilities::getUniformlyDistributedRandomNumber() > std::exp(-w/kT)) {
+    double w = finalEnergy-initialEnergy + pressure*deltaVolume - tension*deltaArea - context.getMolecules().size()*kT*log(newVolume/volume);
+    if (w > 0 && SimTKOpenMMUtilities::getUniformlyDistributedRandomNumber() > exp(-w/kT)) {
         // Reject the step.
         
-        kernel.getAs<ApplyMonteCarloBarostatKernel>().restoreCoordinates(context);
         context.getOwner().setPeriodicBoxVectors(box[0], box[1], box[2]);
-        volume = newVolume;
+        kernel.getAs<ApplyMonteCarloBarostatKernel>().restoreCoordinates(context);
     }
-    else
+    else {
         numAccepted[axis]++;
+        forcesInvalid = true;
+    }
     numAttempted[axis]++;
     if (numAttempted[axis] >= 10) {
         if (numAccepted[axis] < 0.25*numAttempted[axis]) {
@@ -136,23 +137,23 @@ void MonteCarloMembraneBarostatImpl::updateContextState(ContextImpl& context) {
             numAccepted[axis] = 0;
         }
         else if (numAccepted[axis] > 0.75*numAttempted[axis]) {
-            volumeScale[axis] = std::min(volumeScale[axis]*1.1, volume*0.3);
+            volumeScale[axis] = min(volumeScale[axis]*1.1, volume*0.3);
             numAttempted[axis] = 0;
             numAccepted[axis] = 0;
         }
     }
 }
 
-std::map<std::string, double> MonteCarloMembraneBarostatImpl::getDefaultParameters() {
-    std::map<std::string, double> parameters;
+map<string, double> MonteCarloMembraneBarostatImpl::getDefaultParameters() {
+    map<string, double> parameters;
     parameters[MonteCarloMembraneBarostat::Pressure()] = getOwner().getDefaultPressure();
     parameters[MonteCarloMembraneBarostat::SurfaceTension()] = getOwner().getDefaultSurfaceTension();
     parameters[MonteCarloMembraneBarostat::Temperature()] = getOwner().getDefaultTemperature();
     return parameters;
 }
 
-std::vector<std::string> MonteCarloMembraneBarostatImpl::getKernelNames() {
-    std::vector<std::string> names;
+vector<string> MonteCarloMembraneBarostatImpl::getKernelNames() {
+    vector<string> names;
     names.push_back(ApplyMonteCarloBarostatKernel::Name());
     return names;
 }

@@ -67,9 +67,10 @@ __kernel void clearSixBuffers(__global int* restrict buffer1, int size1, __globa
 
 /**
  * Sum a collection of buffers into the first one.
+ * Also, write the result into a 64-bit fixed point buffer (overwriting its contents).
  */
 
-__kernel void reduceReal4Buffer(__global real4* restrict buffer, int bufferSize, int numBuffers) {
+__kernel void reduceReal4Buffer(__global real4* restrict buffer, __global long* restrict longBuffer, int bufferSize, int numBuffers) {
     int index = get_global_id(0);
     int totalSize = bufferSize*numBuffers;
     while (index < bufferSize) {
@@ -77,6 +78,9 @@ __kernel void reduceReal4Buffer(__global real4* restrict buffer, int bufferSize,
         for (int i = index+bufferSize; i < totalSize; i += bufferSize)
             sum += buffer[i];
         buffer[index] = sum;
+        longBuffer[index] = (long) (sum.x*0x100000000);
+        longBuffer[index+bufferSize] = (long) (sum.y*0x100000000);
+        longBuffer[index+2*bufferSize] = (long) (sum.z*0x100000000);
         index += get_global_size(0);
     }
 }
@@ -92,9 +96,9 @@ __kernel void reduceForces(__global long* restrict longBuffer, __global real4* r
         for (int i = index; i < totalSize; i += bufferSize)
             sum += buffer[i];
         buffer[index] = sum;
-        longBuffer[index] = (long) (sum.x*0x100000000);
-        longBuffer[index+bufferSize] = (long) (sum.y*0x100000000);
-        longBuffer[index+2*bufferSize] = (long) (sum.z*0x100000000);
+        longBuffer[index] = realToFixedPoint(sum.x);
+        longBuffer[index+bufferSize] = realToFixedPoint(sum.y);
+        longBuffer[index+2*bufferSize] = realToFixedPoint(sum.z);
     }
 }
 
@@ -104,7 +108,7 @@ __kernel void reduceForces(__global long* restrict longBuffer, __global real4* r
 __kernel void reduceEnergy(__global const mixed* restrict energyBuffer, __global mixed* restrict result, int bufferSize, int workGroupSize, __local mixed* tempBuffer) {
     const unsigned int thread = get_local_id(0);
     mixed sum = 0;
-    for (unsigned int index = thread; index < bufferSize; index += get_local_size(0))
+    for (unsigned int index = get_global_id(0); index < bufferSize; index += get_global_size(0))
         sum += energyBuffer[index];
     tempBuffer[thread] = sum;
     for (int i = 1; i < workGroupSize; i *= 2) {
@@ -113,7 +117,7 @@ __kernel void reduceEnergy(__global const mixed* restrict energyBuffer, __global
             tempBuffer[thread] += tempBuffer[thread+i];
     }
     if (thread == 0)
-        *result = tempBuffer[0];
+        result[get_group_id(0)] = tempBuffer[0];
 }
 
 /**

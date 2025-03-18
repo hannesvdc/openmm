@@ -1,6 +1,6 @@
 %fragment("Vec3_to_PyVec3", "header") {
 /**
- * Convert an OpenMM::Vec3 into a Python simtk.openmm.Vec3 object
+ * Convert an OpenMM::Vec3 into a Python openmm.Vec3 object
  *
  * Returns a new reference.
  */
@@ -8,7 +8,7 @@ PyObject* Vec3_to_PyVec3(const OpenMM::Vec3& v) {
     static PyObject *__s_mm = NULL;
     static PyObject *__s_Vec3 = NULL;
     if (__s_mm == NULL) {
-        __s_mm = PyImport_AddModule("simtk.openmm");
+        __s_mm = PyImport_AddModule("openmm");
         __s_Vec3 = PyObject_GetAttrString(__s_mm, "Vec3");
     }
     PyObject* tuple = Py_BuildValue("(d,d,d)", v[0], v[1], v[2]);
@@ -25,7 +25,7 @@ PyObject* Vec3_to_PyVec3(const OpenMM::Vec3& v) {
  *
  * This is equivalent to the following Python code
  *
- * >>> from simtk import unit
+ * >>> from openmm import unit
  * >>> if isinstance(input, unit.Quantity)
  * ...     if input.is_compatible(unit.bar)
  * ...         return input.value_in_unit(unit.bar)
@@ -41,9 +41,9 @@ PyObject* Py_StripOpenMMUnits(PyObject *input) {
 
     if (__s_Quantity == NULL) {
         PyObject* module = NULL;
-        module = PyImport_ImportModule("simtk.unit");
+        module = PyImport_ImportModule("openmm.unit");
         if (!module) {
-            PyErr_SetString(PyExc_ImportError, "simtk.unit"); Py_CLEAR(module); return NULL;
+            PyErr_SetString(PyExc_ImportError, "openmm.unit"); Py_CLEAR(module); return NULL;
         }
 
         __s_Quantity = PyObject_GetAttrString(module, "Quantity");
@@ -161,39 +161,42 @@ int Py_SequenceToVecDouble(PyObject* obj, std::vector<double>& out) {
     PyObject* item1 = NULL;
 
     if (isNumpyAvailable()) {
-        if (PyArray_Check(stripped) && PyArray_ISCARRAY_RO(stripped) && PyArray_NDIM(stripped) == 1) {
-            int type = PyArray_TYPE(stripped);
-            int length = PyArray_SIZE(stripped);
-            void* data = PyArray_DATA((PyArrayObject*) stripped);
-            if (type == NPY_DOUBLE) {
-                out.resize(length);
-                memcpy(&out[0], data, sizeof(double)*length);
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_FLOAT) {
-                out.resize(length);
-                float* floatData = (float*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = floatData[i];
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_INT32) {
-                out.resize(length);
-                int* intData = (int*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = intData[i];
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_INT64) {
-                out.resize(length);
-                long long* longData = (long long*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = longData[i];
-                Py_DECREF(stripped);
-                return SWIG_OK;
+        if (PyArray_Check(stripped)) {
+            const PyArrayObject* array = (PyArrayObject*) stripped;
+            if (PyArray_ISCARRAY_RO(array) && PyArray_NDIM(array) == 1) {
+                int type = PyArray_TYPE(array);
+                int length = PyArray_SIZE(array);
+                void* data = PyArray_DATA(array);
+                if (type == NPY_DOUBLE) {
+                    out.resize(length);
+                    memcpy(&out[0], data, sizeof(double)*length);
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_FLOAT) {
+                    out.resize(length);
+                    float* floatData = (float*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = floatData[i];
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_INT32) {
+                    out.resize(length);
+                    int* intData = (int*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = intData[i];
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_INT64) {
+                    out.resize(length);
+                    long long* longData = (long long*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = longData[i];
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
             }
         }
     }
@@ -233,39 +236,42 @@ int Py_SequenceToVecDouble(PyObject* obj, std::vector<double>& out) {
 int Py_SequenceToVecVec3(PyObject* obj, std::vector<Vec3>& out) {
     PyObject* stripped = Py_StripOpenMMUnits(obj);      // new reference
     if (isNumpyAvailable()) {
-        if (PyArray_Check(stripped) && PyArray_ISCARRAY_RO(stripped) && PyArray_NDIM(stripped) == 2 && PyArray_DIM(stripped, 1) == 3) {
-            int type = PyArray_TYPE(stripped);
-            int length = PyArray_DIM(stripped, 0);
-            void* data = PyArray_DATA((PyArrayObject*) stripped);
-            if (type == NPY_DOUBLE) {
-                out.resize(length);
-                memcpy(&out[0][0], data, 3*sizeof(double)*length);
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_FLOAT) {
-                out.resize(length);
-                float* floatData = (float*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = Vec3(floatData[3*i], floatData[3*i+1], floatData[3*i+2]);
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_INT32) {
-                out.resize(length);
-                int* intData = (int*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = Vec3(intData[3*i], intData[3*i+1], intData[3*i+2]);
-                Py_DECREF(stripped);
-                return SWIG_OK;
-            }
-            if (type == NPY_INT64) {
-                out.resize(length);
-                long long* longData = (long long*) data;
-                for (int i = 0; i < length; i++)
-                    out[i] = Vec3(longData[3*i], longData[3*i+1], longData[3*i+2]);
-                Py_DECREF(stripped);
-                return SWIG_OK;
+        if (PyArray_Check(stripped)) {
+            const PyArrayObject* array = (PyArrayObject*) stripped;
+            if (PyArray_ISCARRAY_RO(array) && PyArray_NDIM(array) == 2 && PyArray_DIM(array, 1) == 3) {
+                int type = PyArray_TYPE(array);
+                int length = PyArray_DIM(array, 0);
+                void* data = PyArray_DATA((PyArrayObject*) array);
+                if (type == NPY_DOUBLE) {
+                    out.resize(length);
+                    memcpy(&out[0][0], data, 3*sizeof(double)*length);
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_FLOAT) {
+                    out.resize(length);
+                    float* floatData = (float*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = Vec3(floatData[3*i], floatData[3*i+1], floatData[3*i+2]);
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_INT32) {
+                    out.resize(length);
+                    int* intData = (int*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = Vec3(intData[3*i], intData[3*i+1], intData[3*i+2]);
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
+                if (type == NPY_INT64) {
+                    out.resize(length);
+                    long long* longData = (long long*) data;
+                    for (int i = 0; i < length; i++)
+                        out[i] = Vec3(longData[3*i], longData[3*i+1], longData[3*i+2]);
+                    Py_DECREF(array);
+                    return SWIG_OK;
+                }
             }
         }
     }
@@ -537,14 +543,21 @@ int Py_SequenceToVecVecVecDouble(PyObject* obj, std::vector<std::vector<std::vec
 %typemap(argout) const std::vector<Vec3>& {
 }
 
-
+/* The following typemaps handle the ways a Vec3 can be returned from a function. */
 %typemap(out, fragment="Vec3_to_PyVec3") Vec3 {
     $result = Vec3_to_PyVec3(*$1);
 }
 
-
 %typemap(out, fragment="Vec3_to_PyVec3") const Vec3& {
     $result = Vec3_to_PyVec3(*$1);
+}
+
+%typemap(in, numinputs=0) Vec3& OUTPUT (Vec3 temp) {
+    $1 = &temp;
+}
+
+%typemap(argout, fragment="Vec3_to_PyVec3") Vec3& OUTPUT {
+    %append_output(Vec3_to_PyVec3(*$1));
 }
 
 /* Convert C++ (Vec3&, Vec3&, Vec3&) object to python tuple or tuples */

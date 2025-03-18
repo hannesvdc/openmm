@@ -69,8 +69,10 @@ public:
      * @param exclusionList  for each atom, specifies the list of other atoms whose interactions should be excluded
      * @param kernel         the code to evaluate the interaction
      * @param forceGroup     the force group in which the interaction should be calculated
+     * @param useNeighborList  specifies whether a neighbor list should be used to optimize this interaction.  This should
+     *                         be viewed as only a suggestion.  Even when it is false, a neighbor list may be used anyway.
      */
-    virtual void addInteraction(bool usesCutoff, bool usesPeriodic, bool usesExclusions, double cutoffDistance, const std::vector<std::vector<int> >& exclusionList, const std::string& kernel, int forceGroup) = 0;
+    virtual void addInteraction(bool usesCutoff, bool usesPeriodic, bool usesExclusions, double cutoffDistance, const std::vector<std::vector<int> >& exclusionList, const std::string& kernel, int forceGroup, bool useNeighborList=true) = 0;
     /**
      * Add a per-atom parameter that the default interaction kernel may depend on.
      */
@@ -158,6 +160,42 @@ public:
      * on the most recent call to prepareInteractions().
      */
     virtual ArrayInterface& getRebuildNeighborList() = 0;
+    /**
+     * Get the index of the first tile this context is responsible for processing.
+     */
+    virtual int getStartTileIndex() const = 0;
+    /**
+     * Get the total number of tiles this context is responsible for processing.
+     */
+    virtual int getNumTiles() const = 0;
+    /**
+     * Set whether to add padding to the cutoff distance when building the neighbor list.
+     * This increases the size of the neighbor list (and thus the cost of computing interactions),
+     * but also means we don't need to rebuild it every time step.  The default value is true,
+     * since usually this improves performance.  For very expensive interactions, however,
+     * it may be better to set this to false.
+     */
+    virtual void setUsePadding(bool padding) = 0;
+    /**
+     * Initialize this object in preparation for a simulation.
+     */
+    virtual void initialize(const System& system) = 0;
+    /**
+     * Prepare to compute interactions.  This updates the neighbor list.
+     */
+    virtual void prepareInteractions(int forceGroups) = 0;
+    /**
+     * Compute the nonbonded interactions.
+     * 
+     * @param forceGroups    the flags specifying which force groups to include
+     * @param includeForces  whether to compute forces
+     * @param includeEnergy  whether to compute the potential energy
+     */
+    virtual void computeInteractions(int forceGroups, bool includeForces, bool includeEnergy) = 0;
+    /**
+     * Set the source code for the main kernel.  It only needs to be changed in very unusual circumstances.
+     */
+    virtual void setKernelSource(const std::string& source) = 0;
 };
 
 } // namespace OpenMM

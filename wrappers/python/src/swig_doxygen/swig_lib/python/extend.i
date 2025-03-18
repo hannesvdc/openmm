@@ -9,27 +9,30 @@
     def getIntegrator(self):
         return self._integrator
 
-    def getState(self, getPositions=False, getVelocities=False,
+    def getState(self, positions=False, velocities=False,
+                 forces=False, energy=False, parameters=False,
+                 parameterDerivatives=False, integratorParameters=False,
+                 enforcePeriodicBox=False, groups=-1,
+                 getPositions=False, getVelocities=False,
                  getForces=False, getEnergy=False, getParameters=False,
-                 getParameterDerivatives=False, getIntegratorParameters=False,
-                 enforcePeriodicBox=False, groups=-1):
+                 getParameterDerivatives=False, getIntegratorParameters=False):
         """Get a State object recording the current state information stored in this context.
 
         Parameters
         ----------
-        getPositions : bool=False
+        positions : bool=False
             whether to store particle positions in the State
-        getVelocities : bool=False
+        velocities : bool=False
             whether to store particle velocities in the State
-        getForces : bool=False
+        forces : bool=False
             whether to store the forces acting on particles in the State
-        getEnergy : bool=False
+        energy : bool=False
             whether to store potential and kinetic energy in the State
-        getParameters : bool=False
+        parameters : bool=False
             whether to store context parameters in the State
-        getParameterDerivatives : bool=False
+        parameterDerivatives : bool=False
             whether to store parameter derivatives in the State
-        getIntegratorParameters : bool=False
+        integratorParameters : bool=False
             whether to store integrator parameters in the State
         enforcePeriodicBox : bool=False
             if false, the position of each particle will be whatever position
@@ -41,6 +44,20 @@
             forces and energies. The default value includes all groups. groups
             can also be passed as an unsigned integer interpreted as a bitmask,
             in which case group i will be included if (groups&(1<<i)) != 0.
+        getPositions : bool=False
+            Deprecated.  Use `positions` instead.
+        getVelocities : bool=False
+            Deprecated.  Use `velocities` instead.
+        getForces : bool=False
+            Deprecated.  Use `forces` instead.
+        getEnergy : bool=False
+            Deprecated.  Use `energy` instead.
+        getParameters : bool=False
+            Deprecated.  Use `parameters` instead.
+        getParameterDerivatives : bool=False
+            Deprecated.  Use `parameterDerivatives` instead.
+        getIntegratorParameters : bool=False
+            Deprecated.  Use `integratorParameters` instead.
         """
         try:
             # is the input integer-like?
@@ -55,19 +72,19 @@
         if groups_mask >= 0x80000000:
             groups_mask -= 0x100000000
         types = 0
-        if getPositions:
+        if positions or getPositions:
             types += State.Positions
-        if getVelocities:
+        if velocities or getVelocities:
             types += State.Velocities
-        if getForces:
+        if forces or getForces:
             types += State.Forces
-        if getEnergy:
+        if energy or getEnergy:
             types += State.Energy
-        if getParameters:
+        if parameters or getParameters:
             types += State.Parameters
-        if getParameterDerivatives:
+        if parameterDerivatives or getParameterDerivatives:
             types += State.ParameterDerivatives
-        if getIntegratorParameters:
+        if integratorParameters or getIntegratorParameters:
             types += State.IntegratorParameters
         state = _openmm.Context_getState(self, types, enforcePeriodicBox, groups_mask)
         return state
@@ -274,6 +291,11 @@ Parameters:
       return OpenMM::XmlSerializer::deserialize<OpenMM::System>(ss);
   }
 
+  %newobject _cloneSystem;
+  static OpenMM::System* _cloneSystem(const OpenMM::System* object) {
+      return OpenMM::XmlSerializer::clone<OpenMM::System>(*object);
+  }
+
   static std::string _serializeForce(const OpenMM::Force* object) {
       std::stringstream ss;
       OpenMM::XmlSerializer::serialize<OpenMM::Force>(object, "Force", ss);
@@ -285,6 +307,11 @@ Parameters:
       std::stringstream ss;
       ss << inputString;
       return OpenMM::XmlSerializer::deserialize<OpenMM::Force>(ss);
+  }
+
+  %newobject _cloneForce;
+  static OpenMM::Force* _cloneForce(const OpenMM::Force* object) {
+      return OpenMM::XmlSerializer::clone<OpenMM::Force>(*object);
   }
 
   static std::string _serializeIntegrator(const OpenMM::Integrator* object) {
@@ -300,6 +327,11 @@ Parameters:
       return OpenMM::XmlSerializer::deserialize<OpenMM::Integrator>(ss);
   }
 
+  %newobject _cloneIntegrator;
+  static OpenMM::Integrator* _cloneIntegrator(const OpenMM::Integrator* object) {
+      return OpenMM::XmlSerializer::clone<OpenMM::Integrator>(*object);
+  }
+
   static std::string _serializeTabulatedFunction(const OpenMM::TabulatedFunction* object) {
       std::stringstream ss;
       OpenMM::XmlSerializer::serialize<OpenMM::TabulatedFunction>(object, "TabulatedFunction", ss);
@@ -313,6 +345,11 @@ Parameters:
       return OpenMM::XmlSerializer::deserialize<OpenMM::TabulatedFunction>(ss);
   }
 
+  %newobject _cloneTabulatedFunction;
+  static OpenMM::TabulatedFunction* _cloneTabulatedFunction(const OpenMM::TabulatedFunction* object) {
+      return OpenMM::XmlSerializer::clone<OpenMM::TabulatedFunction>(*object);
+  }
+
   static std::string _serializeState(const OpenMM::State* object) {
       std::stringstream ss;
       OpenMM::XmlSerializer::serialize<OpenMM::State>(object, "State", ss);
@@ -324,6 +361,11 @@ Parameters:
       std::stringstream ss;
       ss << inputString;
       return OpenMM::XmlSerializer::deserialize<OpenMM::State>(ss);
+  }
+
+  %newobject _cloneState;
+  static OpenMM::State* _cloneState(const OpenMM::State* object) {
+      return OpenMM::XmlSerializer::clone<OpenMM::State>(*object);
   }
 
   %pythoncode %{
@@ -346,7 +388,7 @@ Parameters:
     def deserialize(inputString):
       """Reconstruct an object that has been serialized as XML."""
       import re
-      match = re.search("<([^?]\S*)", inputString)
+      match = re.search(r"<([^?]\S*)", inputString)
       if match is None:
         raise ValueError("Invalid input string")
       type = match.groups()[0]
@@ -360,6 +402,23 @@ Parameters:
         return XmlSerializer._deserializeState(inputString)
       if type == "TabulatedFunction":
         return XmlSerializer._deserializeTabulatedFunction(inputString)
+      raise ValueError("Unsupported object type")
+
+    @staticmethod
+    def clone(object):
+      """Clone an object by first serializing it, then deserializing it again.  This method constructs the
+         new object directly from the SerializationNodes without first converting them to XML.  This means
+         it is faster and uses less memory than making separate calls to serialize() and deserialize()."""
+      if isinstance(object, System):
+        return XmlSerializer._cloneSystem(object)
+      elif isinstance(object, Force):
+        return XmlSerializer._cloneForce(object)
+      elif isinstance(object, Integrator):
+        return XmlSerializer._cloneIntegrator(object)
+      elif isinstance(object, State):
+        return XmlSerializer._cloneState(object)
+      elif isinstance(object, TabulatedFunction):
+        return XmlSerializer._cloneTabulatedFunction(object)
       raise ValueError("Unsupported object type")
   %}
 }
@@ -384,11 +443,15 @@ Parameters:
 
     def __deepcopy__(self, memo):
         return self.__copy__()
+
+    def __copy__(self):
+      duplicate = XmlSerializer.clone(self)
+      duplicate.__class__ = self.__class__
+      attributes = {key: value for key, value in self.__dict__.items() if key != 'this'}
+      from copy import deepcopy
+      duplicate.__dict__.update(deepcopy(attributes))
+      return duplicate
   %}
-  %newobject __copy__;
-  OpenMM::Force* __copy__() {
-      return OpenMM::XmlSerializer::clone<OpenMM::Force>(*self);
-  }
 }
 
 %extend OpenMM::Integrator {
@@ -403,11 +466,15 @@ Parameters:
 
     def __deepcopy__(self, memo):
         return self.__copy__()
+
+    def __copy__(self):
+      duplicate = XmlSerializer.clone(self)
+      duplicate.__class__ = self.__class__
+      attributes = {key: value for key, value in self.__dict__.items() if key != 'this'}
+      from copy import deepcopy
+      duplicate.__dict__.update(deepcopy(attributes))
+      return duplicate
   %}
-  %newobject __copy__;
-  OpenMM::Integrator* __copy__() {
-      return OpenMM::XmlSerializer::clone<OpenMM::Integrator>(*self);
-  }
 }
 
 %extend OpenMM::TabulatedFunction {
@@ -422,11 +489,10 @@ Parameters:
 
     def __deepcopy__(self, memo):
         return self.__copy__()
+
+    def __copy__(self):
+        return XmlSerializer.clone(self)
   %}
-  %newobject __copy__;
-  OpenMM::TabulatedFunction* __copy__() {
-      return OpenMM::XmlSerializer::clone<OpenMM::TabulatedFunction>(*self);
-  }
 }
 
 %extend OpenMM::State {

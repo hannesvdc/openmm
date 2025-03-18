@@ -42,11 +42,12 @@ AmoebaVdwForceProxy::AmoebaVdwForceProxy() : SerializationProxy("AmoebaVdwForce"
 }
 
 void AmoebaVdwForceProxy::serialize(const void* object, SerializationNode& node) const {
-    node.setIntProperty("version", 4);
+    node.setIntProperty("version", 5);
     const AmoebaVdwForce& force = *reinterpret_cast<const AmoebaVdwForce*>(object);
     bool useTypes = force.getUseParticleTypes();
 
     node.setIntProperty("forceGroup", force.getForceGroup());
+    node.setStringProperty("name", force.getName());
     node.setStringProperty("SigmaCombiningRule", force.getSigmaCombiningRule());
     node.setStringProperty("EpsilonCombiningRule", force.getEpsilonCombiningRule());
     node.setDoubleProperty("VdwCutoff", force.getCutoffDistance());
@@ -61,14 +62,14 @@ void AmoebaVdwForceProxy::serialize(const void* object, SerializationNode& node)
     SerializationNode& particles = node.createChildNode("VdwParticles");
     for (int i = 0; i < force.getNumParticles(); i++) {
         int ivIndex, typeIndex;
-        double sigma, epsilon, reductionFactor;
+        double sigma, epsilon, reductionFactor, scaleFactor;
         bool isAlchemical;
-        force.getParticleParameters(i, ivIndex, sigma, epsilon, reductionFactor, isAlchemical, typeIndex);
+        force.getParticleParameters(i, ivIndex, sigma, epsilon, reductionFactor, isAlchemical, typeIndex, scaleFactor);
         SerializationNode& particle = particles.createChildNode("Particle");
         if (useTypes)
-            particle.setIntProperty("ivIndex", ivIndex).setIntProperty("type", typeIndex).setDoubleProperty("reductionFactor", reductionFactor).setBoolProperty("isAlchemical", isAlchemical);
+            particle.setIntProperty("ivIndex", ivIndex).setIntProperty("type", typeIndex).setDoubleProperty("reductionFactor", reductionFactor).setBoolProperty("isAlchemical", isAlchemical).setDoubleProperty("scaleFactor", scaleFactor);
         else
-            particle.setIntProperty("ivIndex", ivIndex).setDoubleProperty("sigma", sigma).setDoubleProperty("epsilon", epsilon).setDoubleProperty("reductionFactor", reductionFactor).setBoolProperty("isAlchemical", isAlchemical); 
+            particle.setIntProperty("ivIndex", ivIndex).setDoubleProperty("sigma", sigma).setDoubleProperty("epsilon", epsilon).setDoubleProperty("reductionFactor", reductionFactor).setBoolProperty("isAlchemical", isAlchemical).setDoubleProperty("scaleFactor", scaleFactor);
 
         std::vector< int > exclusions;
         force.getParticleExclusions(i,  exclusions);
@@ -97,12 +98,12 @@ void AmoebaVdwForceProxy::serialize(const void* object, SerializationNode& node)
 
 void* AmoebaVdwForceProxy::deserialize(const SerializationNode& node) const {
     int version = node.getIntProperty("version");
-    if (version < 1 || version > 4)
+    if (version < 1 || version > 5)
         throw OpenMMException("Unsupported version number");
     AmoebaVdwForce* force = new AmoebaVdwForce();
     try {
-        if (version > 1)
-            force->setForceGroup(node.getIntProperty("forceGroup", 0));
+        force->setForceGroup(node.getIntProperty("forceGroup", 0));
+        force->setName(node.getStringProperty("name", force->getName()));
         force->setSigmaCombiningRule(node.getStringProperty("SigmaCombiningRule"));
         force->setEpsilonCombiningRule(node.getStringProperty("EpsilonCombiningRule"));
         force->setCutoffDistance(node.getDoubleProperty("VdwCutoff"));
@@ -127,16 +128,31 @@ void* AmoebaVdwForceProxy::deserialize(const SerializationNode& node) const {
             if (version < 3) 
                force->addParticle(particle.getIntProperty("ivIndex"), particle.getDoubleProperty("sigma"), 
                                   particle.getDoubleProperty("epsilon"), particle.getDoubleProperty("reductionFactor"));
-            else if (useTypes)
-               force->addParticle(particle.getIntProperty("ivIndex"), particle.getIntProperty("type"), 
-                                  particle.getDoubleProperty("reductionFactor"), particle.getBoolProperty("isAlchemical"));
-            else
-               force->addParticle(particle.getIntProperty("ivIndex"), particle.getDoubleProperty("sigma"), 
-                                  particle.getDoubleProperty("epsilon"), particle.getDoubleProperty("reductionFactor"), 
-                                  particle.getBoolProperty("isAlchemical"));
+            else if (version == 4) {
+                if (useTypes)
+                    force->addParticle(particle.getIntProperty("ivIndex"), particle.getIntProperty("type"),
+                                       particle.getDoubleProperty("reductionFactor"),
+                                       particle.getBoolProperty("isAlchemical"));
+                else
+                    force->addParticle(particle.getIntProperty("ivIndex"), particle.getDoubleProperty("sigma"),
+                                       particle.getDoubleProperty("epsilon"),
+                                       particle.getDoubleProperty("reductionFactor"),
+                                       particle.getBoolProperty("isAlchemical"));
+            }
+            else {
+                // Version 5 includes per particle scale factor for CpHMD.
+                if (useTypes)
+                    force->addParticle(particle.getIntProperty("ivIndex"), particle.getIntProperty("type"),
+                                       particle.getDoubleProperty("reductionFactor"),
+                                       particle.getBoolProperty("isAlchemical"), particle.getDoubleProperty("scaleFactor"));
+                else
+                    force->addParticle(particle.getIntProperty("ivIndex"), particle.getDoubleProperty("sigma"),
+                                       particle.getDoubleProperty("epsilon"),
+                                       particle.getDoubleProperty("reductionFactor"),
+                                       particle.getBoolProperty("isAlchemical"), particle.getDoubleProperty("scaleFactor"));
+            }
 
             // exclusions
-
             const SerializationNode& particleExclusions = particle.getChildNode("ParticleExclusions");
             std::vector<int> exclusions;
             for (int j = 0; j < particleExclusions.getChildren().size(); j++)

@@ -1,5 +1,5 @@
 
-/* Portions copyright (c) 2006-2020 Stanford University and Simbios.
+/* Portions copyright (c) 2006-2024 Stanford University and Simbios.
  * Contributors: Andy Simmonett, Peter Eastman, Pande Group
  *
  * Permission is hereby granted, free of charge, to any person obtaining
@@ -74,7 +74,6 @@ class ReferenceNoseHooverDynamics : public ReferenceDynamics {
          @param forces              forces
          @param masses              atom masses
          @param tolerance           the constraint tolerance
-         @param forcesAreValid      whether the forces are valid (duh!)
          @param allAtoms            a list of all atoms not involved in a Drude-like pair
          @param allPairs            a list of all Drude-like pairs, and their KT values, in the system
          @param maxPairDistance     the maximum separation allowed for a Drude-like pair
@@ -82,7 +81,7 @@ class ReferenceNoseHooverDynamics : public ReferenceDynamics {
          --------------------------------------------------------------------------------------- */
      
       void step1(OpenMM::ContextImpl &context, const OpenMM::System& system, std::vector<OpenMM::Vec3>& atomCoordinates,
-                 std::vector<OpenMM::Vec3>& velocities, std::vector<OpenMM::Vec3>& forces, std::vector<double>& masses, double tolerance, bool &forcesAreValid,
+                 std::vector<OpenMM::Vec3>& velocities, std::vector<OpenMM::Vec3>& forces, std::vector<double>& masses, double tolerance,
                  const std::vector<int> & allAtoms, const std::vector<std::tuple<int, int, double>> & allPairs, double maxPairDistance);
       /**---------------------------------------------------------------------------------------
       
@@ -94,15 +93,19 @@ class ReferenceNoseHooverDynamics : public ReferenceDynamics {
          @param forces              forces
          @param masses              atom masses
          @param tolerance           the constraint tolerance
-         @param forcesAreValid      whether the forces are valid (duh!)
          @param allAtoms            a list of all atoms not involved in a Drude-like pair
          @param allPairs            a list of all Drude-like pairs, and their KT values, in the system
          @param maxPairDistance     the maximum separation allowed for a Drude-like pair
       
          --------------------------------------------------------------------------------------- */
       void step2(OpenMM::ContextImpl &context, const OpenMM::System& system, std::vector<OpenMM::Vec3>& atomCoordinates,
+<<<<<<< HEAD
                  std::vector<OpenMM::Vec3>& velocities, std::vector<OpenMM::Vec3>& forces, std::vector<double>& masses, double tolerance, bool &forcesAreValid,
                  const std::vector<int> & allAtoms, const std::vector<std::tuple<int, int, double> > & allPairs, double maxPairDistance);
+=======
+                 std::vector<OpenMM::Vec3>& velocities, std::vector<OpenMM::Vec3>& forces, std::vector<double>& masses, double tolerance,
+                 const std::vector<int> & allAtoms, const std::vector<std::tuple<int, int, double>> & allPairs, double maxPairDistance);
+>>>>>>> 2f0ec953199bbb39205202882d27e3f47d7ac198
       
 };
 

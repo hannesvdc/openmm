@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2010-2016 Stanford University and the Authors.      *
+ * Portions copyright (c) 2010-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -55,14 +55,22 @@ namespace OpenMM {
  *
  * As an example, the following code creates a CustomAngleForce that implements a harmonic potential:
  *
- * <tt>CustomAngleForce* force = new CustomAngleForce("0.5*k*(theta-theta0)^2");</tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    CustomAngleForce* force = new CustomAngleForce("0.5*k*(theta-theta0)^2");
+ *
+ * \endverbatim
  *
  * This force depends on two parameters: the spring constant k and equilibrium angle theta0.  The following code defines these parameters:
  *
- * <tt><pre>
- * force->addPerAngleParameter("k");
- * force->addPerAngleParameter("theta0");
- * </pre></tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    force->addPerAngleParameter("k");
+ *    force->addPerAngleParameter("theta0");
+ *
+ * \endverbatim
  * 
  * This class also has the ability to compute derivatives of the potential energy with respect to global parameters.
  * Call addEnergyParameterDerivative() to request that the derivative with respect to a particular parameter be
@@ -255,6 +263,7 @@ private:
     std::vector<AngleInfo> angles;
     std::vector<int> energyParameterDerivatives;
     bool usePeriodic;
+    mutable int numContexts, firstChangedAngle, lastChangedAngle;
 };
 
 /**

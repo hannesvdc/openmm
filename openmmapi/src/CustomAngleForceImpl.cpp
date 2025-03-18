@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2010-2012 Stanford University and the Authors.      *
+ * Portions copyright (c) 2010-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -44,6 +44,7 @@ using std::string;
 using std::stringstream;
 
 CustomAngleForceImpl::CustomAngleForceImpl(const CustomAngleForce& owner) : owner(owner) {
+    forceGroup = owner.getForceGroup();
 }
 
 CustomAngleForceImpl::~CustomAngleForceImpl() {
@@ -57,25 +58,15 @@ void CustomAngleForceImpl::initialize(ContextImpl& context) {
     vector<double> parameters;
     int numParameters = owner.getNumPerAngleParameters();
     for (int i = 0; i < owner.getNumAngles(); i++) {
-        int particle1, particle2, particle3;
-        owner.getAngleParameters(i, particle1, particle2, particle3, parameters);
-        if (particle1 < 0 || particle1 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomAngleForce: Illegal particle index for an angle: ";
-            msg << particle1;
-            throw OpenMMException(msg.str());
-        }
-        if (particle2 < 0 || particle2 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomAngleForce: Illegal particle index for an angle: ";
-            msg << particle2;
-            throw OpenMMException(msg.str());
-        }
-        if (particle3 < 0 || particle3 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomAngleForce: Illegal particle index for an angle: ";
-            msg << particle3;
-            throw OpenMMException(msg.str());
+        int particle[3];
+        owner.getAngleParameters(i, particle[0], particle[1], particle[2], parameters);
+        for (int j = 0; j < 3; j++) {
+            if (particle[j] < 0 || particle[j] >= system.getNumParticles()) {
+                stringstream msg;
+                msg << "CustomAngleForce: Illegal particle index for an angle: ";
+                msg << particle[j];
+                throw OpenMMException(msg.str());
+            }
         }
         if (parameters.size() != numParameters) {
             stringstream msg;
@@ -88,7 +79,7 @@ void CustomAngleForceImpl::initialize(ContextImpl& context) {
 }
 
 double CustomAngleForceImpl::calcForcesAndEnergy(ContextImpl& context, bool includeForces, bool includeEnergy, int groups) {
-    if ((groups&(1<<owner.getForceGroup())) != 0)
+    if ((groups&(1<<forceGroup)) != 0)
         return kernel.getAs<CalcCustomAngleForceKernel>().execute(context, includeForces, includeEnergy);
     return 0.0;
 }
@@ -106,7 +97,7 @@ map<string, double> CustomAngleForceImpl::getDefaultParameters() {
     return parameters;
 }
 
-void CustomAngleForceImpl::updateParametersInContext(ContextImpl& context) {
-    kernel.getAs<CalcCustomAngleForceKernel>().copyParametersToContext(context, owner);
+void CustomAngleForceImpl::updateParametersInContext(ContextImpl& context, int firstAngle, int lastAngle) {
+    kernel.getAs<CalcCustomAngleForceKernel>().copyParametersToContext(context, owner, firstAngle, lastAngle);
     context.systemChanged();
 }

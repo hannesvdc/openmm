@@ -1,13 +1,11 @@
+import tempfile
 import unittest
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
-import simtk.openmm.app.element as elem
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
+import openmm.app.element as elem
 import os
-if sys.version_info >= (3, 0):
-    from io import StringIO
-else:
-    from cStringIO import StringIO
+from io import StringIO
 
 class TestPdbxFile(unittest.TestCase):
     """Test the PDBx/mmCIF file parser"""
@@ -16,22 +14,13 @@ class TestPdbxFile(unittest.TestCase):
         """Test conversion from PDB to PDBx"""
 
         mol = PDBFile('systems/ala_ala_ala.pdb')
-
-        # Write to 'file'
-        output = StringIO()
-        PDBxFile.writeFile(mol.topology, mol.positions, output,
-                           keepIds=True)
-
-        # Read from 'file'
-        input = StringIO(output.getvalue())
-        try:
-            pdbx = PDBxFile(input)
-        except Exception:
-            self.fail('Parser failed to read PDBx/mmCIF file')
-
-        # Close file handles
-        output.close()
-        input.close()
+        with tempfile.TemporaryDirectory() as tempdir:
+            filename = os.path.join(tempdir, 'temp.pdbx')
+            PDBxFile.writeFile(mol.topology, mol.positions, filename, keepIds=True)
+            try:
+                pdbx = PDBxFile(filename)
+            except Exception:
+                self.fail('Parser failed to read PDBx/mmCIF file')
 
 
     def test_Triclinic(self):
@@ -80,7 +69,7 @@ class TestPdbxFile(unittest.TestCase):
         parm = AmberPrmtopFile('systems/alanine-dipeptide-implicit.prmtop')
         system = parm.createSystem()
         sim = Simulation(parm.topology, system, VerletIntegrator(1*femtoseconds),
-                         Platform.getPlatformByName('Reference'))
+                         Platform.getPlatform('Reference'))
         sim.context.setPositions(PDBFile('systems/alanine-dipeptide-implicit.pdb').getPositions())
         sim.reporters.append(PDBxReporter('test.cif', 1))
         sim.step(10)
@@ -112,7 +101,7 @@ class TestPdbxFile(unittest.TestCase):
         parm = AmberPrmtopFile('systems/alanine-dipeptide-explicit.prmtop')
         system = parm.createSystem(nonbondedCutoff=1.0, nonbondedMethod=PME)
         sim = Simulation(parm.topology, system, VerletIntegrator(1*femtoseconds),
-                         Platform.getPlatformByName('Reference'))
+                         Platform.getPlatform('Reference'))
         orig_pdb = PDBFile('systems/alanine-dipeptide-explicit.pdb')
         sim.context.setPositions(orig_pdb.getPositions())
         sim.context.setPeriodicBoxVectors(*parm.topology.getPeriodicBoxVectors())

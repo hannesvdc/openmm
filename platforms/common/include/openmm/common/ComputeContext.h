@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2019 Stanford University and the Authors.           *
+ * Portions copyright (c) 2019-2025 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -40,10 +40,12 @@
 #include "openmm/common/IntegrationUtilities.h"
 #include "openmm/common/NonbondedUtilities.h"
 #include "openmm/Vec3.h"
-#include <pthread.h>
+#include <condition_variable>
 #include <map>
+#include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace OpenMM {
@@ -65,6 +67,8 @@ public:
     class ReorderListener;
     class ForcePreComputation;
     class ForcePostComputation;
+    static const int ThreadBlockSize;
+    static const int TileSize;
     ComputeContext(const System& system);
     virtual ~ComputeContext();
     /**
@@ -91,8 +95,29 @@ public:
      * doing any computation when you do not know what other code has just been executing on
      * the thread.  Platforms that rely on binding contexts to threads (such as CUDA) need to
      * implement this.
+     * 
+     * @deprecated It is recommended to use pushAsCurrent() and popAsCurrent() instead, or even better to create a ContextSelector.
+     * This provides better interoperability with other libraries that use CUDA and create
+     * their own contexts.
      */
     virtual void setAsCurrent() {
+    }
+    /**
+     * Set this as the current context for the calling thread, maintaining any previous context
+     * on a stack.  This should be called before doing any computation when you do not know what
+     * other code has just been executing on the thread.  It must be paired with popAsCurrent()
+     * when you are done to restore the previous context.  Alternatively, you can create a
+     * ContextSelector object to automate this for a block of code.
+     * 
+     * Platforms that rely on binding contexts to threads (such as CUDA) need to implement this.
+     */
+    virtual void pushAsCurrent() {
+    }
+    /**
+     * Restore a previous context that was replaced by pushAsCurrent().  Platforms that rely on binding
+     * contexts to threads (such as CUDA) need to implement this.
+     */
+    virtual void popAsCurrent() {
     }
     /**
      * Get the number of contexts being used for the current simulation.
@@ -106,6 +131,17 @@ public:
      * one ComputeContext is created for each device.
      */
     virtual int getContextIndex() const = 0;
+    /**
+     * Get a list of all contexts being used for the current simulation.
+     * This is relevant when a simulation is parallelized across multiple devices.  In that case,
+     * one ComputeContext is created for each device.
+     */
+    virtual std::vector<ComputeContext*> getAllContexts() = 0;
+    /**
+     * Get a workspace used for accumulating energy when a simulation is parallelized across
+     * multiple devices.
+     */
+    virtual double& getEnergyWorkspace() = 0;
     /**
      * Construct an uninitialized array of the appropriate class for this platform.  The returned
      * value should be created on the heap with the "new" operator.
@@ -122,6 +158,13 @@ public:
      * @param defines            a set of preprocessor definitions (name, value) to define when compiling the program
      */
     virtual ComputeProgram compileProgram(const std::string source, const std::map<std::string, std::string>& defines=std::map<std::string, std::string>()) = 0;
+    /**
+     * Compute the largest thread block size that can be used for a kernel that requires a particular amount of
+     * shared memory per thread.
+     * 
+     * @param memory        the number of bytes of shared memory per thread
+     */
+    virtual int computeThreadBlockSize(double memory) const = 0;
     /**
      * Set all elements of an array to 0.
      */
@@ -170,13 +213,13 @@ public:
     /**
      * Get the number of integration steps that have been taken.
      */
-    int getStepCount() {
+    long long getStepCount() {
         return stepCount;
     }
     /**
      * Set the number of integration steps that have been taken.
      */
-    void setStepCount(int steps) {
+    void setStepCount(long long steps) {
         stepCount = steps;
     }
     /**
@@ -218,8 +261,18 @@ public:
     /**
      * Reorder the internal arrays of atoms to try to keep spatially contiguous atoms close
      * together in the arrays.
+     * 
+     * Calling this method might or might not actually change the atom order.  It uses
+     * internal heuristics to decide when and how often to update the order.  If you
+     * want to guarantee that reordering will definitely be done, call forceReorder() before
+     * calling this.
      */
     void reorderAtoms();
+    /**
+     * Calling this method guarantees that the next call to reorderAtoms() will actually
+     * perform reordering.
+     */
+    void forceReorder();
     /**
      * Add a listener that should be called whenever atoms get reordered.  The OpenCLContext
      * assumes ownership of the object, and deletes it when the context itself is deleted.
@@ -279,6 +332,10 @@ public:
         return paddedNumAtoms;
     }
     /**
+     * Get the number of blocks of TileSize atoms.
+     */
+    virtual int getNumAtomBlocks() const = 0;
+    /**
      * Get the standard number of thread blocks to use when executing kernels.
      */
     virtual int getNumThreadBlocks() const = 0;
@@ -300,10 +357,14 @@ public:
     virtual ArrayInterface& getVelm() = 0;
     /**
      * On devices that do not support 64 bit atomics, this returns an array containing buffers of type real4 in which
-     * forces can be accumulated.  Do not call this if getSupports64BitGlobalAtomics() returns true.  The returned value
-     * in that case is undefined, and it may throw an exception.
+     * forces can be accumulated.  On platforms that do not use floating point force buffers, this will throw an exception.
      */
     virtual ArrayInterface& getForceBuffers() = 0;
+    /**
+     * Get the array which contains a contribution to each force represented as a real4.  On platforms that do not use
+     * floating point force buffers, this will throw an exception.
+     */
+    virtual ArrayInterface& getFloatForceBuffer() = 0;
     /**
      * Get the array which contains a contribution to each force represented as 64 bit fixed point.
      */
@@ -340,6 +401,10 @@ public:
         return atomIndex;
     }
     /**
+     * Set the vector which contains the index of each atom.
+     */
+    void setAtomIndex(std::vector<int>& index);
+    /**
      * Get the array which contains the index of each atom.
      */
     virtual ArrayInterface& getAtomIndexArray() = 0;
@@ -348,6 +413,12 @@ public:
      */
     std::vector<mm_int4>& getPosCellOffsets() {
         return posCellOffsets;
+    }
+    /**
+     * Set the number of cells by which the positions are offset.
+     */
+    void setPosCellOffsets(std::vector<mm_int4>& offsets) {
+        posCellOffsets = offsets;
     }
     /**
      * Replace all occurrences of a list of substrings.
@@ -360,8 +431,10 @@ public:
     /**
      * Convert a number to a string in a format suitable for including in a kernel.
      * This takes into account whether the context uses single or double precision.
+     * If mixedIsDouble is true, a double precision constant will also be produced
+     * in mixed precision mode.
      */
-    std::string doubleToString(double value) const;
+    std::string doubleToString(double value, bool mixedIsDouble=false) const;
     /**
      * Convert a number to a string in a format suitable for including in a kernel.
      */
@@ -395,6 +468,17 @@ public:
      */
     virtual NonbondedUtilities& getNonbondedUtilities() = 0;
     /**
+     * Create a new NonbondedUtilities for use with this context.  This should be called
+     * only in unusual situations, when a Force needs its own NonbondedUtilities object
+     * separate from the standard one.  The caller is responsible for deleting the object
+     * when it is no longer needed.
+     */
+    virtual NonbondedUtilities* createNonbondedUtilities() = 0;
+    /**
+     * Get the smallest legal size for a dimension of the grid.
+     */
+    virtual int findLegalFFTDimension(int minimum);
+    /**
      * This should be called by the Integrator from its own initialize() method.
      * It ensures all contexts are fully initialized.
      */
@@ -403,7 +487,7 @@ public:
      * Get the thread used by this context for executing parallel computations.
      */
     WorkThread& getWorkThread() {
-        return *thread;
+        return *workThread;
     }
     /**
      * Get the names of all parameters with respect to which energy derivatives are computed.
@@ -436,7 +520,12 @@ public:
      * may be invalid.  This should be called whenever force field parameters change.  It will cause the
      * definitions and order to be revalidated.
      */
-    bool invalidateMolecules(ComputeForceInfo* force);
+    bool invalidateMolecules(ComputeForceInfo* force, bool checkAtoms=true, bool checkGroups=true);
+    /**
+     * Make sure the current atom order is valid, based on the forces.  If not, perform reordering
+     * to generate a new valid order.  This method is only needed in very unusual situations.
+     */
+    void validateAtomOrder();
     /**
      * Wait until all work that has been queued (kernel executions, asynchronous data transfers, etc.)
      * has been submitted to the device.  This does not mean it has necessarily been completed.
@@ -449,6 +538,7 @@ protected:
     struct MoleculeGroup;
     class VirtualSiteInfo;
     void findMoleculeGroups();
+    void resetAtomOrder();
     /**
      * This is the internal implementation of reorderAtoms(), templatized by the numerical precision in use.
      */
@@ -456,8 +546,9 @@ protected:
     void reorderAtomsImpl();
     const System& system;
     double time;
-    int numAtoms, paddedNumAtoms, stepCount, computeForceCount, stepsSinceReorder;
-    bool atomsWereReordered, forcesValid;
+    int numAtoms, paddedNumAtoms, computeForceCount, stepsSinceReorder;
+    long long stepCount;
+    bool forceNextReorder, atomsWereReordered, forcesValid;
     std::vector<ComputeForceInfo*> forces;
     std::vector<Molecule> molecules;
     std::vector<MoleculeGroup> moleculeGroups;
@@ -466,7 +557,7 @@ protected:
     std::vector<ReorderListener*> reorderListeners;
     std::vector<ForcePreComputation*> preComputations;
     std::vector<ForcePostComputation*> postComputations;
-    WorkThread* thread;
+    WorkThread* workThread;
 };
 
 struct ComputeContext::Molecule {
@@ -510,15 +601,20 @@ public:
      */
     bool isFinished();
     /**
+     * Get whether the thread invoking this method is the worker thread.
+     */
+    bool isCurrentThread();
+    /**
      * Block until all tasks have finished executing and the worker thread is idle.
      */
     void flush();
 private:
     std::queue<ComputeContext::WorkTask*> tasks;
-    bool waiting, finished;
-    pthread_mutex_t queueLock;
-    pthread_cond_t waitForTaskCondition, queueEmptyCondition;
-    pthread_t thread;
+    bool waiting, finished, threwException;
+    OpenMMException stashedException;
+    std::mutex queueLock;
+    std::condition_variable waitForTaskCondition, queueEmptyCondition;
+    std::thread workThread;
 };
 
 /**

@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2016 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -40,19 +40,16 @@
 #include <utility>
 
 using namespace OpenMM;
-using std::map;
-using std::pair;
-using std::set;
-using std::string;
-using std::stringstream;
-using std::vector;
+using namespace std;
 
 CustomNonbondedForce::CustomNonbondedForce(const string& energy) : energyExpression(energy), nonbondedMethod(NoCutoff), cutoffDistance(1.0),
-    switchingDistance(-1.0), useSwitchingFunction(false), useLongRangeCorrection(false) {
+    switchingDistance(-1.0), useSwitchingFunction(false), useLongRangeCorrection(false), numContexts(0) {
 }
 
-CustomNonbondedForce::CustomNonbondedForce(const CustomNonbondedForce& rhs) {
+CustomNonbondedForce::CustomNonbondedForce(const CustomNonbondedForce& rhs) : numContexts(0) {
     // Copy everything and deep copy the tabulated functions
+    setForceGroup(rhs.getForceGroup());
+    setName(rhs.getName());
     energyExpression = rhs.energyExpression;
     nonbondedMethod = rhs.nonbondedMethod;
     cutoffDistance = rhs.cutoffDistance;
@@ -61,6 +58,7 @@ CustomNonbondedForce::CustomNonbondedForce(const CustomNonbondedForce& rhs) {
     useLongRangeCorrection = rhs.useLongRangeCorrection;
     parameters = rhs.parameters;
     globalParameters = rhs.globalParameters;
+    computedValues = rhs.computedValues;
     energyParameterDerivatives = rhs.energyParameterDerivatives;
     particles = rhs.particles;
     exclusions = rhs.exclusions;
@@ -191,6 +189,10 @@ void CustomNonbondedForce::getParticleParameters(int index, std::vector<double>&
 void CustomNonbondedForce::setParticleParameters(int index, const vector<double>& parameters) {
     ASSERT_VALID_INDEX(index, particles);
     particles[index].parameters = parameters;
+    if (numContexts > 0) {
+        firstChangedParticle = min(index, firstChangedParticle);
+        lastChangedParticle = max(index, lastChangedParticle);
+    }
 }
 
 int CustomNonbondedForce::addExclusion(int particle1, int particle2) {
@@ -280,6 +282,23 @@ void CustomNonbondedForce::setFunctionParameters(int index, const std::string& n
     function->setFunctionParameters(values, min, max);
 }
 
+int CustomNonbondedForce::addComputedValue(const string& name, const string& expression) {
+    computedValues.push_back(ComputedValueInfo(name, expression));
+    return computedValues.size()-1;
+}
+
+void CustomNonbondedForce::getComputedValueParameters(int index, string& name, string& expression) const {
+    ASSERT_VALID_INDEX(index, computedValues);
+    name = computedValues[index].name;
+    expression = computedValues[index].expression;
+}
+
+void CustomNonbondedForce::setComputedValueParameters(int index, const string& name, const string& expression) {
+    ASSERT_VALID_INDEX(index, computedValues);
+    computedValues[index].name = name;
+    computedValues[index].expression = expression;
+}
+
 int CustomNonbondedForce::addInteractionGroup(const std::set<int>& set1, const std::set<int>& set2) {
     for (set<int>::iterator it = set1.begin(); it != set1.end(); ++it)
         ASSERT(*it >= 0);
@@ -306,9 +325,21 @@ void CustomNonbondedForce::setInteractionGroupParameters(int index, const std::s
 }
 
 ForceImpl* CustomNonbondedForce::createImpl() const {
+    if (numContexts == 0) {
+        // Begin tracking changes to particles.
+        firstChangedParticle = particles.size();
+        lastChangedParticle = -1;
+    }
+    numContexts++;
     return new CustomNonbondedForceImpl(*this);
 }
 
 void CustomNonbondedForce::updateParametersInContext(Context& context) {
-    dynamic_cast<CustomNonbondedForceImpl&>(getImplInContext(context)).updateParametersInContext(getContextImpl(context));
+    dynamic_cast<CustomNonbondedForceImpl&>(getImplInContext(context)).updateParametersInContext(getContextImpl(context), firstChangedParticle, lastChangedParticle);
+    if (numContexts == 1) {
+        // We just updated the only existing context for this force, so we can reset
+        // the tracking of changed particles.
+        firstChangedParticle = particles.size();
+        lastChangedParticle = -1;
+    }
 }

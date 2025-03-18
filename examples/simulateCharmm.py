@@ -1,7 +1,7 @@
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
-from sys import stdout, exit, stderr
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
+from sys import stdout
 
 # Read the PSF
 psf = CharmmPsfFile('ala_ala_ala.psf')
@@ -25,7 +25,7 @@ integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picosecond
 simulation = Simulation(psf.topology, system, integrator)
 simulation.context.setPositions(pdb.getPositions())
 simulation.minimizeEnergy()
-simulation.reporters.append(PDBReporter('ch_output.pdb', 1000))
+simulation.reporters.append(DCDReporter('output.dcd', 1000))
 simulation.reporters.append(
         StateDataReporter(stdout, 1000, step=True, potentialEnergy=True,
                           temperature=True)

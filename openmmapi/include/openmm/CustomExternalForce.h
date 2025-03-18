@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2012 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -56,16 +56,24 @@ namespace OpenMM {
  * As an example, the following code creates a CustomExternalForce that attracts each particle to a target position (x0, y0, z0)
  * via a harmonic potential:
  *
- * <tt>CustomExternalForce* force = new CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)");</tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    CustomExternalForce* force = new CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)");
+ *
+ * \endverbatim
  *
  * This force depends on four parameters: the spring constant k and equilibrium coordinates x0, y0, and z0.  The following code defines these parameters:
  *
- * <tt><pre>
- * force->addGlobalParameter("k", 100.0);
- * force->addPerParticleParameter("x0");
- * force->addPerParticleParameter("y0");
- * force->addPerParticleParameter("z0");
- * </pre></tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    force->addGlobalParameter("k", 100.0);
+ *    force->addPerParticleParameter("x0");
+ *    force->addPerParticleParameter("y0");
+ *    force->addPerParticleParameter("z0");
+ *
+ * \endverbatim
  *
  * Special care is needed in systems that use periodic boundary conditions.  In that case, each particle really represents
  * an infinite set of particles repeating through space.  The variables x, y, and z contain the coordinates of one of those
@@ -73,7 +81,12 @@ namespace OpenMM {
  * this situation by using the function periodicdistance(x1, y1, z1, x2, y2, z2), which returns the minimum distance between
  * periodic copies of the points (x1, y1, z1) and (x2, y2, z2).  For example, the force given above would be rewritten as
  *
- * <tt>CustomExternalForce* force = new CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2");</tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    CustomExternalForce* force = new CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2");
+ *
+ * \endverbatim
  *
  * Expressions may involve the operators + (add), - (subtract), * (multiply), / (divide), and ^ (power), and the following
  * functions: sqrt, exp, log, sin, cos, sec, csc, tan, cot, asin, acos, atan, atan2, sinh, cosh, tanh, erf, erfc, min, max, abs, floor, ceil, step, delta, select.  All trigonometric functions
@@ -227,6 +240,7 @@ private:
     std::vector<ParticleParameterInfo> parameters;
     std::vector<GlobalParameterInfo> globalParameters;
     std::vector<ParticleInfo> particles;
+    mutable int numContexts, firstChangedParticle, lastChangedParticle;
 };
 
 /**

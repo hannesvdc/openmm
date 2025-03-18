@@ -1,3 +1,10 @@
 /Debug/
 .DS_Store
 examples/output.pdb
+=======
+__pycache__
+build
+build?
+
+# macOS
+.DS_Store

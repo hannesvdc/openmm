@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2016 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -52,9 +52,12 @@ class KernelFactory;
  *
  * To get a Platform object, call
  *
- * <pre>
- * Platform& platform = Platform::findPlatform(kernelNames);
- * </pre>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    Platform& platform = Platform::findPlatform(kernelNames);
+ *
+ * \endverbatim
  *
  * passing in the names of all kernels that will be required for the calculation you plan to perform.  It
  * will return the fastest available Platform which provides implementations of all the specified kernels.
@@ -183,12 +186,20 @@ public:
      */
     static Platform& getPlatform(int index);
     /**
+     * Get a registered Platform by name.  If no Platform with that name has been
+     * registered, this throws an exception.
+     */
+    static Platform& getPlatform(const std::string& name);
+    /**
      * Get any failures caused during the last call to loadPluginsFromDirectory
      */
     static std::vector<std::string> getPluginLoadFailures();
     /**
      * Get the registered Platform with a particular name.  If no Platform with that name has been
      * registered, this throws an exception.
+     * 
+     * This is identical to the version of getPlatform() that takes a name.  It
+     * is here for backward compatibility.
      */
     static Platform& getPlatformByName(const std::string& name);
     /**

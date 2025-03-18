@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2010-2020 Stanford University and the Authors.      *
+ * Portions copyright (c) 2010-2023 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -41,8 +41,7 @@
 #include <algorithm>
 
 using namespace OpenMM;
-using namespace OpenMM_SFMT;
-using std::vector;
+using namespace std;
 
 MonteCarloBarostatImpl::MonteCarloBarostatImpl(const MonteCarloBarostat& owner) : owner(owner), step(0) {
 }
@@ -78,22 +77,22 @@ void MonteCarloBarostatImpl::updateContextState(ContextImpl& context, bool& forc
     double volume = box[0][0]*box[1][1]*box[2][2];
     double deltaVolume = volumeScale*2*(SimTKOpenMMUtilities::getUniformlyDistributedRandomNumber()-0.5);
     double newVolume = volume+deltaVolume;
-    double lengthScale = std::pow(newVolume/volume, 1.0/3.0);
-    kernel.getAs<ApplyMonteCarloBarostatKernel>().scaleCoordinates(context, lengthScale, lengthScale, lengthScale);
+    double lengthScale = pow(newVolume/volume, 1.0/3.0);
+    kernel.getAs<ApplyMonteCarloBarostatKernel>().saveCoordinates(context);
     context.getOwner().setPeriodicBoxVectors(box[0]*lengthScale, box[1]*lengthScale, box[2]*lengthScale);
+    kernel.getAs<ApplyMonteCarloBarostatKernel>().scaleCoordinates(context, lengthScale, lengthScale, lengthScale);
 
     // Compute the energy of the modified system.
     
     double finalEnergy = context.getOwner().getState(State::Energy, false, groups).getPotentialEnergy();
     double pressure = context.getParameter(MonteCarloBarostat::Pressure())*(AVOGADRO*1e-25);
     double kT = BOLTZ*context.getParameter(MonteCarloBarostat::Temperature());
-    double w = finalEnergy-initialEnergy + pressure*deltaVolume - context.getMolecules().size()*kT*std::log(newVolume/volume);
-    if (w > 0 && SimTKOpenMMUtilities::getUniformlyDistributedRandomNumber() > std::exp(-w/kT)) {
+    double w = finalEnergy-initialEnergy + pressure*deltaVolume - context.getMolecules().size()*kT*log(newVolume/volume);
+    if (w > 0 && SimTKOpenMMUtilities::getUniformlyDistributedRandomNumber() > exp(-w/kT)) {
         // Reject the step.
 
-        kernel.getAs<ApplyMonteCarloBarostatKernel>().restoreCoordinates(context);
         context.getOwner().setPeriodicBoxVectors(box[0], box[1], box[2]);
-        volume = newVolume;
+        kernel.getAs<ApplyMonteCarloBarostatKernel>().restoreCoordinates(context);
     }
     else {
         numAccepted++;
@@ -107,22 +106,22 @@ void MonteCarloBarostatImpl::updateContextState(ContextImpl& context, bool& forc
             numAccepted = 0;
         }
         else if (numAccepted > 0.75*numAttempted) {
-            volumeScale = std::min(volumeScale*1.1, volume*0.3);
+            volumeScale = min(volumeScale*1.1, volume*0.3);
             numAttempted = 0;
             numAccepted = 0;
         }
     }
 }
 
-std::map<std::string, double> MonteCarloBarostatImpl::getDefaultParameters() {
-    std::map<std::string, double> parameters;
+map<string, double> MonteCarloBarostatImpl::getDefaultParameters() {
+    map<string, double> parameters;
     parameters[MonteCarloBarostat::Pressure()] = getOwner().getDefaultPressure();
     parameters[MonteCarloBarostat::Temperature()] = getOwner().getDefaultTemperature();
     return parameters;
 }
 
-std::vector<std::string> MonteCarloBarostatImpl::getKernelNames() {
-    std::vector<std::string> names;
+vector<string> MonteCarloBarostatImpl::getKernelNames() {
+    vector<string> names;
     names.push_back(ApplyMonteCarloBarostatKernel::Name());
     return names;
 }

@@ -46,6 +46,7 @@ void testSerialization() {
 
     AmoebaVdwForce force1;
     force1.setForceGroup(3);
+    force1.setName("custom name");
     force1.setSigmaCombiningRule("GEOMETRIC");
     force1.setEpsilonCombiningRule("GEOMETRIC");
     force1.setCutoff(0.9);
@@ -53,9 +54,9 @@ void testSerialization() {
     force1.setAlchemicalMethod(AmoebaVdwForce::None);
     force1.setPotentialFunction(AmoebaVdwForce::Buffered147);
 
-    force1.addParticle(0, 1.0, 2.0, 0.9, false);
-    force1.addParticle(1, 1.1, 2.1, 0.9, true);
-    force1.addParticle(2, 1.3, 4.1, 0.9, false);
+    force1.addParticle(0, 1.0, 2.0, 0.9, false, 1.0);
+    force1.addParticle(1, 1.1, 2.1, 0.9, true, 0.9);
+    force1.addParticle(2, 1.3, 4.1, 0.9, false, 1.0);
     for (int i = 0; i < 3; i++) {
         std::vector< int > exclusions;
         exclusions.push_back(i);
@@ -74,6 +75,7 @@ void testSerialization() {
     AmoebaVdwForce& force2 = *copy;
 
     ASSERT_EQUAL(force1.getForceGroup(), force2.getForceGroup());
+    ASSERT_EQUAL(force1.getName(), force2.getName());
     ASSERT_EQUAL(force1.getSigmaCombiningRule(),    force2.getSigmaCombiningRule());
     ASSERT_EQUAL(force1.getEpsilonCombiningRule(),  force2.getEpsilonCombiningRule());
     ASSERT_EQUAL(force1.getCutoff(),                force2.getCutoff());
@@ -88,14 +90,14 @@ void testSerialization() {
         int ivIndex1, type1;
         int ivIndex2, type2;
 
-        double sigma1, epsilon1, reductionFactor1;
-        double sigma2, epsilon2, reductionFactor2;
+        double sigma1, epsilon1, reductionFactor1, scaleFactor1;
+        double sigma2, epsilon2, reductionFactor2, scaleFactor2;
 
         bool isAlchemical1;
         bool isAlchemical2;
 
-        force1.getParticleParameters(i, ivIndex1, sigma1, epsilon1, reductionFactor1, isAlchemical1, type1);
-        force2.getParticleParameters(i, ivIndex2, sigma2, epsilon2, reductionFactor2, isAlchemical2, type2);
+        force1.getParticleParameters(i, ivIndex1, sigma1, epsilon1, reductionFactor1, isAlchemical1, type1, scaleFactor1);
+        force2.getParticleParameters(i, ivIndex2, sigma2, epsilon2, reductionFactor2, isAlchemical2, type2, scaleFactor2);
 
         ASSERT_EQUAL(ivIndex1,          ivIndex2);
         ASSERT_EQUAL(sigma1,            sigma2);
@@ -103,6 +105,7 @@ void testSerialization() {
         ASSERT_EQUAL(reductionFactor1,  reductionFactor2);
         ASSERT_EQUAL(isAlchemical1,     isAlchemical2);
         ASSERT_EQUAL(type1,             type2);
+        ASSERT_EQUAL(scaleFactor1,      scaleFactor2);
     }
     for (int i = 0; i < force1.getNumParticles(); i++) {
 
@@ -129,10 +132,10 @@ void testSerializeTypes() {
     AmoebaVdwForce force1;
     force1.setPotentialFunction(AmoebaVdwForce::LennardJones);
 
-    force1.addParticle(0, 2, 1.0, false);
-    force1.addParticle(1, 2, 0.9, true);
-    force1.addParticle(2, 0, 1.0, false);
-    force1.addParticle(3, 1, 0.9, false);
+    force1.addParticle(0, 2, 1.0, false, 1.0);
+    force1.addParticle(1, 2, 0.9, true, 0.0);
+    force1.addParticle(2, 0, 1.0, false, 0.5);
+    force1.addParticle(3, 1, 0.9, false, 0.9);
     force1.addParticleType(1.1, 2.0);
     force1.addParticleType(1.2, 2.1);
     force1.addParticleType(1.3, 2.2);
@@ -156,14 +159,14 @@ void testSerializeTypes() {
         int ivIndex1, type1;
         int ivIndex2, type2;
 
-        double sigma1, epsilon1, reductionFactor1;
-        double sigma2, epsilon2, reductionFactor2;
+        double sigma1, epsilon1, reductionFactor1, scaleFactor1;
+        double sigma2, epsilon2, reductionFactor2, scaleFactor2;
 
         bool isAlchemical1;
         bool isAlchemical2;
 
-        force1.getParticleParameters(i, ivIndex1, sigma1, epsilon1, reductionFactor1, isAlchemical1, type1);
-        force2.getParticleParameters(i, ivIndex2, sigma2, epsilon2, reductionFactor2, isAlchemical2, type2);
+        force1.getParticleParameters(i, ivIndex1, sigma1, epsilon1, reductionFactor1, isAlchemical1, type1, scaleFactor1);
+        force2.getParticleParameters(i, ivIndex2, sigma2, epsilon2, reductionFactor2, isAlchemical2, type2, scaleFactor2);
 
         ASSERT_EQUAL(ivIndex1,          ivIndex2);
         ASSERT_EQUAL(sigma1,            sigma2);
@@ -171,6 +174,7 @@ void testSerializeTypes() {
         ASSERT_EQUAL(reductionFactor1,  reductionFactor2);
         ASSERT_EQUAL(isAlchemical1,     isAlchemical2);
         ASSERT_EQUAL(type1,             type2);
+        ASSERT_EQUAL(scaleFactor1,      scaleFactor2);
     }
     for (int i = 0; i < force1.getNumParticleTypes(); i++) {
         double sigma1, epsilon1;

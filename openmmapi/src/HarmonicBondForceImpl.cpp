@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2012 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -29,28 +29,45 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.                                     *
  * -------------------------------------------------------------------------- */
 
+#include "openmm/OpenMMException.h"
 #include "openmm/internal/ContextImpl.h"
 #include "openmm/internal/HarmonicBondForceImpl.h"
 #include "openmm/kernels.h"
+#include <sstream>
 
 using namespace OpenMM;
-using std::pair;
-using std::vector;
-using std::set;
+using namespace std;
 
 HarmonicBondForceImpl::HarmonicBondForceImpl(const HarmonicBondForce& owner) : owner(owner) {
+    forceGroup = owner.getForceGroup();
 }
 
 HarmonicBondForceImpl::~HarmonicBondForceImpl() {
 }
 
 void HarmonicBondForceImpl::initialize(ContextImpl& context) {
+    const System& system = context.getSystem();
+    for (int i = 0; i < owner.getNumBonds(); i++) {
+        int particle[2];
+        double length, k;
+        owner.getBondParameters(i, particle[0], particle[1], length, k);
+        for (int j = 0; j < 2; j++) {
+            if (particle[j] < 0 || particle[j] >= system.getNumParticles()) {
+                stringstream msg;
+                msg << "HarmonicBondForce: Illegal particle index for a bond: ";
+                msg << particle[j];
+                throw OpenMMException(msg.str());
+            }
+        }
+        if (length < 0)
+            throw OpenMMException("HarmonicBondForce: bond length cannot be negative");
+    }
     kernel = context.getPlatform().createKernel(CalcHarmonicBondForceKernel::Name(), context);
     kernel.getAs<CalcHarmonicBondForceKernel>().initialize(context.getSystem(), owner);
 }
 
 double HarmonicBondForceImpl::calcForcesAndEnergy(ContextImpl& context, bool includeForces, bool includeEnergy, int groups) {
-    if ((groups&(1<<owner.getForceGroup())) != 0)
+    if ((groups&(1<<forceGroup)) != 0)
         return kernel.getAs<CalcHarmonicBondForceKernel>().execute(context, includeForces, includeEnergy);
     return 0.0;
 }
@@ -71,7 +88,7 @@ vector<pair<int, int> > HarmonicBondForceImpl::getBondedParticles() const {
     return bonds;
 }
 
-void HarmonicBondForceImpl::updateParametersInContext(ContextImpl& context) {
-    kernel.getAs<CalcHarmonicBondForceKernel>().copyParametersToContext(context, owner);
+void HarmonicBondForceImpl::updateParametersInContext(ContextImpl& context, int firstBond, int lastBond) {
+    kernel.getAs<CalcHarmonicBondForceKernel>().copyParametersToContext(context, owner, firstBond, lastBond);
     context.systemChanged();
 }

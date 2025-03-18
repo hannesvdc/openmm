@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2009-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2009-2023 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -48,7 +48,6 @@
     // Prevent Windows from defining macros that interfere with other code.
     #define NOMINMAX
 #endif
-#include <pthread.h>
 #include "opencl.hpp"
 #include "openmm/common/windowsExportCommon.h"
 #include "OpenCLArray.h"
@@ -192,6 +191,17 @@ public:
         return contextIndex;
     }
     /**
+     * Get a list of all contexts being used for the current simulation.
+     * This is relevant when a simulation is parallelized across multiple devices.  In that case,
+     * one ComputeContext is created for each device.
+     */
+    std::vector<ComputeContext*> getAllContexts();
+    /**
+     * Get a workspace used for accumulating energy when a simulation is parallelized across
+     * multiple devices.
+     */
+    double& getEnergyWorkspace();
+    /**
      * Get the cl::CommandQueue currently being used for execution.
      */
     cl::CommandQueue& getQueue();
@@ -254,6 +264,13 @@ public:
      */
     OpenCLArray& getForceBuffers() {
         return forceBuffers;
+    }
+    /**
+     * Get the array which contains a contribution to each force represented as a real4.
+     * This is a synonym for getForce().  It exists to satisfy the ComputeContext interface.
+     */
+    ArrayInterface& getFloatForceBuffer() {
+        return force;
     }
     /**
      * Get the array which contains a contribution to each force represented as 64 bit fixed point.
@@ -322,6 +339,13 @@ public:
      */
     void executeKernel(cl::Kernel& kernel, int workUnits, int blockSize = -1);
     /**
+     * Compute the largest thread block size that can be used for a kernel that requires a particular amount of
+     * shared memory per thread.
+     * 
+     * @param memory        the number of bytes of shared memory per thread
+     */
+    int computeThreadBlockSize(double memory) const;
+    /**
      * Set all elements of an array to 0.
      */
     void clearBuffer(ArrayInterface& array);
@@ -350,11 +374,13 @@ public:
     /**
      * Given a collection of floating point buffers packed into an array, sum them and store
      * the sum in the first buffer.
+     * Also, write the result into a 64-bit fixed point buffer (overwriting its contents).
      *
      * @param array       the array containing the buffers to reduce
+     * @param longBuffer  the 64-bit fixed point buffer to write the result into
      * @param numBuffers  the number of buffers packed into the array
      */
-    void reduceBuffer(OpenCLArray& array, int numBuffers);
+    void reduceBuffer(OpenCLArray& array, OpenCLArray& longBuffer, int numBuffers);
     /**
      * Sum the buffers containing forces.
      */
@@ -378,13 +404,13 @@ public:
     /**
      * Get the number of integration steps that have been taken.
      */
-    int getStepCount() {
+    long long getStepCount() {
         return stepCount;
     }
     /**
      * Set the number of integration steps that have been taken.
      */
-    void setStepCount(int steps) {
+    void setStepCount(long long steps) {
         stepCount = steps;
     }
     /**
@@ -598,6 +624,15 @@ public:
         return *nonbonded;
     }
     /**
+     * Create a new NonbondedUtilities for use with this context.  This should be called
+     * only in unusual situations, when a Force needs its own NonbondedUtilities object
+     * separate from the standard one.  The caller is responsible for deleting the object
+     * when it is no longer needed.
+     */
+    OpenCLNonbondedUtilities* createNonbondedUtilities() {
+        return new OpenCLNonbondedUtilities(*this);
+    }
+    /**
      * This should be called by the Integrator from its own initialize() method.
      * It ensures all contexts are fully initialized.
      */
@@ -641,6 +676,7 @@ public:
     void flushQueue();
 private:
     OpenCLPlatform::PlatformData& platformData;
+    void printProfilingEvents();
     int deviceIndex;
     int platformIndex;
     int contextIndex;
@@ -683,6 +719,9 @@ private:
     std::map<std::string, double> energyParamDerivWorkspace;
     std::vector<cl::Memory*> autoclearBuffers;
     std::vector<int> autoclearBufferSizes;
+    std::vector<cl::Event> profilingEvents;
+    std::vector<std::string> profilingKernelNames;
+    cl_ulong profileStartTime;
     OpenCLIntegrationUtilities* integration;
     OpenCLExpressionUtilities* expression;
     OpenCLBondedUtilities* bonded;

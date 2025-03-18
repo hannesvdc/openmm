@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2009-2020 Stanford University and the Authors.      *
+ * Portions copyright (c) 2009-2024 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -38,6 +38,7 @@
 #include "OpenCLNonbondedUtilities.h"
 #include "OpenCLProgram.h"
 #include "openmm/common/ComputeArray.h"
+#include "openmm/MonteCarloFlexibleBarostat.h"
 #include "openmm/Platform.h"
 #include "openmm/System.h"
 #include "openmm/VirtualSite.h"
@@ -51,6 +52,10 @@
 
 using namespace OpenMM;
 using namespace std;
+
+// Uncomment the following line to enable profiling of all kernel launches.  The results are written
+// to stdout in the JSON format used by https://ui.perfetto.dev.
+//#define ENABLE_PROFILING
 
 #ifndef CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV
   #define CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV 0x4000
@@ -78,8 +83,8 @@ static bool isSupported(cl::Platform platform) {
 }
 
 OpenCLContext::OpenCLContext(const System& system, int platformIndex, int deviceIndex, const string& precision, OpenCLPlatform::PlatformData& platformData, OpenCLContext* originalContext) :
-        ComputeContext(system), platformData(platformData), numForceBuffers(0), hasAssignedPosqCharges(false),
-        integration(NULL), expression(NULL), bonded(NULL), nonbonded(NULL) {
+        ComputeContext(system), platformData(platformData), numForceBuffers(0), hasAssignedPosqCharges(false), profileStartTime(0),
+        integration(NULL), expression(NULL), bonded(NULL), nonbonded(NULL), pinnedBuffer(NULL) {
     if (precision == "single") {
         useDoublePrecision = false;
         useMixedPrecision = false;
@@ -120,7 +125,7 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
             string platformVendor = platforms[j].getInfo<CL_PLATFORM_VENDOR>();
             vector<cl::Device> devices;
             try {
-                platforms[j].getDevices(CL_DEVICE_TYPE_ALL, &devices);
+                platforms[j].getDevices(CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU, &devices);
             }
             catch (...) {
                 // There are no devices available for this platform.
@@ -192,7 +197,7 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
             cout << "WARNING: Using an unsupported OpenCL implementation.  Results may be incorrect." << endl;
 
         vector<cl::Device> devices;
-        platforms[bestPlatform].getDevices(CL_DEVICE_TYPE_ALL, &devices);
+        platforms[bestPlatform].getDevices(CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU, &devices);
         string platformVendor = platforms[bestPlatform].getInfo<CL_PLATFORM_VENDOR>();
         device = devices[bestDevice];
 
@@ -211,7 +216,14 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
             throw OpenMMException("This device does not support double precision");
         string vendor = device.getInfo<CL_DEVICE_VENDOR>();
         int numThreadBlocksPerComputeUnit = 6;
-        if (vendor.size() >= 6 && vendor.substr(0, 6) == "NVIDIA") {
+      
+        if (vendor.size() >= 5 && vendor.substr(0, 5) == "Apple") {
+            simdWidth = 32;
+
+            // 768 threads per GPU core.
+            numThreadBlocksPerComputeUnit = 12;
+        }
+        else if (vendor.size() >= 6 && vendor.substr(0, 6) == "NVIDIA") {
             compilationDefines["WARPS_ARE_ATOMIC"] = "";
             simdWidth = 32;
             if (device.getInfo<CL_DEVICE_EXTENSIONS>().find("cl_nv_device_attribute_query") != string::npos) {
@@ -289,7 +301,12 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
         cl_context_properties cprops[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platforms[bestPlatform](), 0};
         if (originalContext == NULL) {
             context = cl::Context(contextDevices, cprops, errorCallback);
+#ifdef ENABLE_PROFILING
+            defaultQueue = cl::CommandQueue(context, device, CL_QUEUE_PROFILING_ENABLE);
+            printf("[ ");
+#else
             defaultQueue = cl::CommandQueue(context, device);
+#endif
         }
         else {
             context = originalContext->context;
@@ -413,6 +430,8 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
     compilationDefines["ACOS"] = "acos";
     compilationDefines["ASIN"] = "asin";
     compilationDefines["ATAN"] = "atan";
+    compilationDefines["ERF"] = "erf";
+    compilationDefines["ERFC"] = "erfc";
 
     // Set defines for applying periodic boundary conditions.
 
@@ -421,6 +440,9 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
     boxIsTriclinic = (boxVectors[0][1] != 0.0 || boxVectors[0][2] != 0.0 ||
                       boxVectors[1][0] != 0.0 || boxVectors[1][2] != 0.0 ||
                       boxVectors[2][0] != 0.0 || boxVectors[2][1] != 0.0);
+    for (int i = 0; i < system.getNumForces(); i++)
+        if (dynamic_cast<const MonteCarloFlexibleBarostat*>(&system.getForce(i)) != NULL)
+            boxIsTriclinic = true;
     if (boxIsTriclinic) {
         compilationDefines["APPLY_PERIODIC_TO_DELTA(delta)"] =
             "{"
@@ -489,31 +511,34 @@ OpenCLContext::~OpenCLContext() {
         delete bonded;
     if (nonbonded != NULL)
         delete nonbonded;
+#ifdef ENABLE_PROFILING
+    printProfilingEvents();
+    printf(" ]\n");
+#endif
 }
 
 void OpenCLContext::initialize() {
     bonded->initialize(system);
     numForceBuffers = std::max(numForceBuffers, (int) platformData.contexts.size());
-    numForceBuffers = std::max(numForceBuffers, bonded->getNumForceBuffers());
-    numForceBuffers = std::max(numForceBuffers, nonbonded->getNumForceBuffers());
     int energyBufferSize = max(numThreadBlocks*ThreadBlockSize, nonbonded->getNumEnergyBuffers());
+    int numComputeUnits = device.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
     if (useDoublePrecision) {
         forceBuffers.initialize<mm_double4>(*this, paddedNumAtoms*numForceBuffers, "forceBuffers");
         force.initialize<mm_double4>(*this, &forceBuffers.getDeviceBuffer(), paddedNumAtoms, "force");
         energyBuffer.initialize<cl_double>(*this, energyBufferSize, "energyBuffer");
-        energySum.initialize<cl_double>(*this, 1, "energySum");
+        energySum.initialize<cl_double>(*this, numComputeUnits, "energySum");
     }
     else if (useMixedPrecision) {
         forceBuffers.initialize<mm_float4>(*this, paddedNumAtoms*numForceBuffers, "forceBuffers");
         force.initialize<mm_float4>(*this, &forceBuffers.getDeviceBuffer(), paddedNumAtoms, "force");
         energyBuffer.initialize<cl_double>(*this, energyBufferSize, "energyBuffer");
-        energySum.initialize<cl_double>(*this, 1, "energySum");
+        energySum.initialize<cl_double>(*this, numComputeUnits, "energySum");
     }
     else {
         forceBuffers.initialize<mm_float4>(*this, paddedNumAtoms*numForceBuffers, "forceBuffers");
         force.initialize<mm_float4>(*this, &forceBuffers.getDeviceBuffer(), paddedNumAtoms, "force");
         energyBuffer.initialize<cl_float>(*this, energyBufferSize, "energyBuffer");
-        energySum.initialize<cl_float>(*this, 1, "energySum");
+        energySum.initialize<cl_float>(*this, numComputeUnits, "energySum");
     }
     reduceForcesKernel.setArg<cl::Buffer>(0, longForceBuffer.getDeviceBuffer());
     reduceForcesKernel.setArg<cl::Buffer>(1, forceBuffers.getDeviceBuffer());
@@ -530,7 +555,9 @@ void OpenCLContext::initialize() {
             energyParamDerivBuffer.initialize<cl_float>(*this, numEnergyParamDerivs*energyBufferSize, "energyParamDerivBuffer");
         addAutoclearBuffer(energyParamDerivBuffer);
     }
-    int bufferBytes = max(velm.getSize()*velm.getElementSize(), energyBufferSize*energyBuffer.getElementSize());
+    int bufferBytes = max(max((int) velm.getSize()*velm.getElementSize(),
+            energyBufferSize*energyBuffer.getElementSize()),
+            (int) longForceBuffer.getSize()*longForceBuffer.getElementSize());
     pinnedBuffer = new cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, bufferBytes);
     pinnedMemory = currentQueue.enqueueMapBuffer(*pinnedBuffer, CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, bufferBytes);
     for (int i = 0; i < numAtoms; i++) {
@@ -570,15 +597,16 @@ cl::Program OpenCLContext::createProgram(const string source, const map<string, 
     if (!options.empty())
         src << "// Compilation Options: " << options << endl << endl;
     for (auto& pair : compilationDefines) {
-        src << "#define " << pair.first;
-        if (!pair.second.empty())
-            src << " " << pair.second;
-        src << endl;
+        // Query defines to avoid duplicate variables
+        if (defines.find(pair.first) == defines.end()) {
+            src << "#define " << pair.first;
+            if (!pair.second.empty())
+                src << " " << pair.second;
+            src << endl;
+        }
     }
     if (!compilationDefines.empty())
         src << endl;
-    if (supportsDoublePrecision)
-        src << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     if (useDoublePrecision) {
         src << "typedef double real;\n";
         src << "typedef double2 real2;\n";
@@ -623,6 +651,17 @@ cl::Program OpenCLContext::createProgram(const string source, const map<string, 
     return program;
 }
 
+vector<ComputeContext*> OpenCLContext::getAllContexts() {
+    vector<ComputeContext*> result;
+    for (OpenCLContext* c : platformData.contexts)
+        result.push_back(c);
+    return result;
+}
+
+double& OpenCLContext::getEnergyWorkspace() {
+    return platformData.contextEnergy[contextIndex];
+}
+
 cl::CommandQueue& OpenCLContext::getQueue() {
     return currentQueue;
 }
@@ -665,13 +704,53 @@ void OpenCLContext::executeKernel(cl::Kernel& kernel, int workUnits, int blockSi
         blockSize = ThreadBlockSize;
     int size = std::min((workUnits+blockSize-1)/blockSize, numThreadBlocks)*blockSize;
     try {
+#ifdef ENABLE_PROFILING
+    cl::Event event;
+    currentQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(size), cl::NDRange(blockSize), NULL, &event);
+    profilingEvents.push_back(event);
+    profilingKernelNames.push_back(kernel.getInfo<CL_KERNEL_FUNCTION_NAME>());
+    if (profilingEvents.size() >= 500)
+        printProfilingEvents();
+#else
         currentQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(size), cl::NDRange(blockSize));
+#endif
     }
     catch (cl::Error err) {
         stringstream str;
         str<<"Error invoking kernel "<<kernel.getInfo<CL_KERNEL_FUNCTION_NAME>()<<": "<<err.what()<<" ("<<err.err()<<")";
         throw OpenMMException(str.str());
     }
+}
+
+void OpenCLContext::printProfilingEvents() {
+    for (int i = 0; i < profilingEvents.size(); i++) {
+        cl::Event event = profilingEvents[i];
+        event.wait();
+        cl_ulong start, end;
+        event.getProfilingInfo(CL_PROFILING_COMMAND_START, &start);
+        event.getProfilingInfo(CL_PROFILING_COMMAND_END, &end);
+        if (profileStartTime == 0)
+            profileStartTime = start;
+        else
+            printf(",\n");
+        printf("{ \"pid\":1, \"tid\":1, \"ts\":%.6g, \"dur\":%g, \"ph\":\"X\", \"name\":\"%s\" }",
+                0.001*(start-profileStartTime), 0.001*(end-start), profilingKernelNames[i].c_str());
+    }
+    profilingEvents.clear();
+    profilingKernelNames.clear();
+}
+
+int OpenCLContext::computeThreadBlockSize(double memory) const {
+    int maxShared = device.getInfo<CL_DEVICE_LOCAL_MEM_SIZE>();
+    // On some implementations, more local memory gets used than we calculate by
+    // adding up the sizes of the fields.  To be safe, include a factor of 0.5.
+    int max = (int) (0.5*maxShared/memory);
+    if (max < 64)
+        return 32;
+    int threads = 64;
+    while (threads+64 < max)
+        threads += 64;
+    return threads;
 }
 
 void OpenCLContext::clearBuffer(ArrayInterface& array) {
@@ -762,11 +841,12 @@ void OpenCLContext::reduceForces() {
     executeKernel(reduceForcesKernel, paddedNumAtoms, 128);
 }
 
-void OpenCLContext::reduceBuffer(OpenCLArray& array, int numBuffers) {
+void OpenCLContext::reduceBuffer(OpenCLArray& array, OpenCLArray& longBuffer, int numBuffers) {
     int bufferSize = array.getSize()/numBuffers;
     reduceReal4Kernel.setArg<cl::Buffer>(0, array.getDeviceBuffer());
-    reduceReal4Kernel.setArg<cl_int>(1, bufferSize);
-    reduceReal4Kernel.setArg<cl_int>(2, numBuffers);
+    reduceReal4Kernel.setArg<cl::Buffer>(1, longBuffer.getDeviceBuffer());
+    reduceReal4Kernel.setArg<cl_int>(2, bufferSize);
+    reduceReal4Kernel.setArg<cl_int>(3, numBuffers);
     executeKernel(reduceReal4Kernel, bufferSize, 128);
 }
 
@@ -779,17 +859,18 @@ double OpenCLContext::reduceEnergy() {
     reduceEnergyKernel.setArg<cl_int>(2, energyBuffer.getSize());
     reduceEnergyKernel.setArg<cl_int>(3, workGroupSize);
     reduceEnergyKernel.setArg(4, workGroupSize*energyBuffer.getElementSize(), NULL);
-    executeKernel(reduceEnergyKernel, workGroupSize, workGroupSize);
+    executeKernel(reduceEnergyKernel, workGroupSize*energySum.getSize(), workGroupSize);
+    energySum.download(pinnedMemory);
+    double result = 0;
     if (getUseDoublePrecision() || getUseMixedPrecision()) {
-        double energy;
-        energySum.download(&energy);
-        return energy;
+        for (int i = 0; i < energySum.getSize(); i++)
+            result += ((double*) pinnedMemory)[i];
     }
     else {
-        float energy;
-        energySum.download(&energy);
-        return energy;
+        for (int i = 0; i < energySum.getSize(); i++)
+            result += ((float*) pinnedMemory)[i];
     }
+    return result;
 }
 
 void OpenCLContext::setCharges(const vector<double>& charges) {

@@ -1,7 +1,7 @@
 import unittest
-from simtk.openmm import app
-import simtk.openmm as mm
-from simtk import unit
+from openmm import app
+import openmm as mm
+from openmm import unit
 try:
     import numpy as np
     NUMPY_IMPORT_FAILED = False
@@ -22,7 +22,7 @@ class TestNumpyCompatibility(unittest.TestCase):
         integrator = mm.LangevinIntegrator(300*unit.kelvin, 1.0/unit.picoseconds,
                                            2.0*unit.femtoseconds)
         self.simulation = app.Simulation(prmtop.topology, system, integrator,
-                                    mm.Platform.getPlatformByName('Reference'))
+                                    mm.Platform.getPlatform('Reference'))
 
 
     def test_setPositions(self):

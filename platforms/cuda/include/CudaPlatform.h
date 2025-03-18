@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2016 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2023 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -91,14 +91,18 @@ public:
         return key;
     }
     /**
-     * This is the name of the parameter for specifying the path to the CUDA compiler.
+     * This property is ignored.  It exists only for backward compatibility.
+     * 
+     * @deprecated
      */
     static const std::string& CudaCompiler() {
         static const std::string key = "CudaCompiler";
         return key;
     }
     /**
-     * This is the name of the parameter for specifying the host compiler for the CUDA compiler to use.
+     * This property is ignored.  It exists only for backward compatibility.
+     * 
+     * @deprecated
      */
     static const std::string& CudaHostCompiler() {
         static const std::string key = "CudaHostCompiler";
@@ -130,8 +134,8 @@ public:
 class OPENMM_EXPORT_COMMON CudaPlatform::PlatformData {
 public:
     PlatformData(ContextImpl* context, const System& system, const std::string& deviceIndexProperty, const std::string& blockingProperty, const std::string& precisionProperty,
-            const std::string& cpuPmeProperty, const std::string& compilerProperty, const std::string& tempProperty, const std::string& hostCompilerProperty,
-            const std::string& pmeStreamProperty, const std::string& deterministicForcesProperty, int numThreads, ContextImpl* originalContext);
+            const std::string& cpuPmeProperty, const std::string& tempProperty, const std::string& pmeStreamProperty, const std::string& deterministicForcesProperty,
+            int numThreads, ContextImpl* originalContext);
     ~PlatformData();
     void initializeContexts(const System& system);
     void syncContexts();
@@ -139,8 +143,8 @@ public:
     std::vector<CudaContext*> contexts;
     std::vector<double> contextEnergy;
     bool hasInitializedContexts, removeCM, peerAccessSupported, useCpuPme, disablePmeStream, deterministicForces;
-    int cmMotionFrequency;
-    int stepCount, computeForceCount;
+    int cmMotionFrequency, computeForceCount;
+    long long stepCount;
     double time;
     std::map<std::string, std::string> propertyValues;
     ThreadPool threads;

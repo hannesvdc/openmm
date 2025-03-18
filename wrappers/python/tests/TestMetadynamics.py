@@ -1,7 +1,7 @@
 import unittest
-from simtk.openmm import *
-from simtk.openmm.app import *
-from simtk.unit import *
+from openmm import *
+from openmm.app import *
+from openmm.unit import *
 
 class TestMetadynamics(unittest.TestCase):
     """Test the Metadynamics class"""
@@ -25,7 +25,7 @@ class TestMetadynamics(unittest.TestCase):
         residue = topology.addResidue('H2', chain)
         topology.addAtom('H1', element.hydrogen, residue)
         topology.addAtom('H2', element.hydrogen, residue)
-        simulation = Simulation(topology, system, integrator, Platform.getPlatformByName('Reference'))
+        simulation = Simulation(topology, system, integrator, Platform.getPlatform('Reference'))
         simulation.context.setPositions([Vec3(0, 0, 0), Vec3(1, 0, 0)])
         meta.step(simulation, 200000)
         fe = meta.getFreeEnergy()

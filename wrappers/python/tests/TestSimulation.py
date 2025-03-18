@@ -1,9 +1,9 @@
 import unittest
 import tempfile
 from datetime import datetime, timedelta
-from simtk.openmm import *
-from simtk.openmm.app import *
-from simtk.unit import *
+from openmm import *
+from openmm.app import *
+from openmm.unit import *
 
 class TestSimulation(unittest.TestCase):
     """Test the Simulation class"""
@@ -17,7 +17,7 @@ class TestSimulation(unittest.TestCase):
 
         # Create a Simulation.
 
-        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatformByName('Reference'))
+        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatform('Reference'))
         simulation.context.setPositions(pdb.positions)
         simulation.context.setVelocitiesToTemperature(300*kelvin)
         initialState = simulation.context.getState(getPositions=True, getVelocities=True)
@@ -74,7 +74,7 @@ class TestSimulation(unittest.TestCase):
 
         # Create a Simulation.
 
-        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatformByName('Reference'))
+        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatform('Reference'))
         simulation.context.setPositions(pdb.positions)
         simulation.context.setVelocitiesToTemperature(300*kelvin)
         initialState = simulation.context.getState(getPositions=True, getVelocities=True)
@@ -107,16 +107,18 @@ class TestSimulation(unittest.TestCase):
 
         # Create a Simulation.
 
-        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatformByName('Reference'))
+        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatform('Reference'))
         simulation.context.setPositions(pdb.positions)
         simulation.context.setVelocitiesToTemperature(300*kelvin)
         self.assertEqual(0, simulation.currentStep)
         self.assertEqual(0*picoseconds, simulation.context.getState().getTime())
+        simulation.currentStep = 5
+        self.assertEqual(5, simulation.currentStep)
 
         # Take some steps and verify the simulation has advanced by the correct amount.
 
         simulation.step(23)
-        self.assertEqual(23, simulation.currentStep)
+        self.assertEqual(28, simulation.currentStep)
         self.assertAlmostEqual(0.023, simulation.context.getState().getTime().value_in_unit(picoseconds))
 
     def testRunForClockTime(self):
@@ -128,7 +130,7 @@ class TestSimulation(unittest.TestCase):
 
         # Create a Simulation.
 
-        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatformByName('Reference'))
+        simulation = Simulation(pdb.topology, system, integrator, Platform.getPlatform('Reference'))
         simulation.context.setPositions(pdb.positions)
         simulation.context.setVelocitiesToTemperature(300*kelvin)
         self.assertEqual(0, simulation.currentStep)
@@ -177,7 +179,7 @@ class TestSimulation(unittest.TestCase):
                 
             def describeNextReport(self, simulation):
                 steps = self.interval - simulation.currentStep%self.interval
-                return (steps, True, False, False, False, self.periodic)
+                return {'steps':steps, 'periodic':self.periodic, 'include':['positions']}
         
             def report(self, simulation, state):
                 state2 = simulation.context.getState(getPositions=True, enforcePeriodicBox=self.periodic)
@@ -194,6 +196,33 @@ class TestSimulation(unittest.TestCase):
         # Run for a little while and make sure the reporters don't find any problems.
         
         simulation.step(500)
+
+    def testMinimizationReporter(self):
+        """Test invoking a reporter during minimization."""
+        pdb = PDBFile('systems/alanine-dipeptide-implicit.pdb')
+        ff = ForceField('amber99sb.xml', 'tip3p.xml')
+        system = ff.createSystem(pdb.topology)
+        integrator = LangevinIntegrator(300*kelvin, 1/picosecond, 0.002*picoseconds)
+        simulation = Simulation(pdb.topology, system, integrator)
+        simulation.context.setPositions(pdb.positions)
+
+        class Reporter(MinimizationReporter):
+            lastIteration = -1
+            error = False
+
+            def report(self, iteration, x, grad, args):
+                if iteration != self.lastIteration+1:
+                    self.error = True
+                self.lastIteration = iteration
+                if iteration == 10:
+                    return True
+                if iteration > 10:
+                    self.error = True
+                return False
+
+        reporter = Reporter()
+        simulation.minimizeEnergy(reporter=reporter)
+        assert not reporter.error
 
 
 if __name__ == '__main__':

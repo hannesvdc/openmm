@@ -40,273 +40,6 @@
 namespace OpenMM {
 
 /**
- * This kernel is invoked by AmoebaBondForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaBondForceKernel : public CalcAmoebaBondForceKernel {
-public:
-    ReferenceCalcAmoebaBondForceKernel(const std::string& name,
-                                               const Platform& platform,
-                                               const System& system);
-    ~ReferenceCalcAmoebaBondForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaBondForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaBondForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaBondForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaBondForce& force);
-private:
-    int numBonds;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<double> length;
-    std::vector<double> kQuadratic;
-    double globalBondCubic;
-    double globalBondQuartic;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
- * This kernel is invoked by AmoebaAngleForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaAngleForceKernel : public CalcAmoebaAngleForceKernel {
-public:
-    ReferenceCalcAmoebaAngleForceKernel(const std::string& name, const Platform& platform, const System& system);
-    ~ReferenceCalcAmoebaAngleForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaAngleForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaAngleForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaAngleForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaAngleForce& force);
-private:
-    int numAngles;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<int>   particle3;
-    std::vector<double> angle;
-    std::vector<double> kQuadratic;
-    double globalAngleCubic;
-    double globalAngleQuartic;
-    double globalAnglePentic;
-    double globalAngleSextic;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
- * This kernel is invoked by AmoebaInPlaneAngleForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaInPlaneAngleForceKernel : public CalcAmoebaInPlaneAngleForceKernel {
-public:
-    ReferenceCalcAmoebaInPlaneAngleForceKernel(const std::string& name, const Platform& platform, const System& system);
-    ~ReferenceCalcAmoebaInPlaneAngleForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaInPlaneAngleForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaInPlaneAngleForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaInPlaneAngleForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaInPlaneAngleForce& force);
-private:
-    int numAngles;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<int>   particle3;
-    std::vector<int>   particle4;
-    std::vector<double> angle;
-    std::vector<double> kQuadratic;
-    double globalInPlaneAngleCubic;
-    double globalInPlaneAngleQuartic;
-    double globalInPlaneAnglePentic;
-    double globalInPlaneAngleSextic;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
- * This kernel is invoked by AmoebaPiTorsionForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaPiTorsionForceKernel : public CalcAmoebaPiTorsionForceKernel {
-public:
-    ReferenceCalcAmoebaPiTorsionForceKernel(const std::string& name, const Platform& platform, const System& system);
-    ~ReferenceCalcAmoebaPiTorsionForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaPiTorsionForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaPiTorsionForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaPiTorsionForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaPiTorsionForce& force);
-private:
-    int numPiTorsions;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<int>   particle3;
-    std::vector<int>   particle4;
-    std::vector<int>   particle5;
-    std::vector<int>   particle6;
-    std::vector<double> kTorsion;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
- * This kernel is invoked by AmoebaStretchBendForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaStretchBendForceKernel : public CalcAmoebaStretchBendForceKernel {
-public:
-    ReferenceCalcAmoebaStretchBendForceKernel(const std::string& name, const Platform& platform, const System& system);
-    ~ReferenceCalcAmoebaStretchBendForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaStretchBendForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaStretchBendForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaStretchBendForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaStretchBendForce& force);
-private:
-    int numStretchBends;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<int>   particle3;
-    std::vector<double> lengthABParameters;
-    std::vector<double> lengthCBParameters;
-    std::vector<double> angleParameters;
-    std::vector<double> k1Parameters;
-    std::vector<double> k2Parameters;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
- * This kernel is invoked by AmoebaOutOfPlaneBendForce to calculate the forces acting on the system and the energy of the system.
- */
-class ReferenceCalcAmoebaOutOfPlaneBendForceKernel : public CalcAmoebaOutOfPlaneBendForceKernel {
-public:
-    ReferenceCalcAmoebaOutOfPlaneBendForceKernel(const std::string& name, const Platform& platform, const System& system);
-    ~ReferenceCalcAmoebaOutOfPlaneBendForceKernel();
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param force      the AmoebaOutOfPlaneBendForce this kernel will be used for
-     */
-    void initialize(const System& system, const AmoebaOutOfPlaneBendForce& force);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the AmoebaOutOfPlaneBendForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const AmoebaOutOfPlaneBendForce& force);
-private:
-    int numOutOfPlaneBends;
-    std::vector<int>   particle1;
-    std::vector<int>   particle2;
-    std::vector<int>   particle3;
-    std::vector<int>   particle4;
-    std::vector<double> kParameters;
-    double globalOutOfPlaneBendAngleCubic;
-    double globalOutOfPlaneBendAngleQuartic;
-    double globalOutOfPlaneBendAnglePentic;
-    double globalOutOfPlaneBendAngleSextic;
-    const System& system;
-    bool usePeriodic;
-};
-
-/**
  * This kernel is invoked by AmoebaTorsionTorsionForce to calculate the forces acting on the system and the energy of the system.
  */
 class ReferenceCalcAmoebaTorsionTorsionForceKernel : public CalcAmoebaTorsionTorsionForceKernel {
@@ -586,6 +319,25 @@ public:
     int getIncludeCavityTerm() const;
 
     /**
+     *  Get the 'tanh rescaling' flag.
+     *
+     *  @return tanhRescaling
+     */
+    bool getTanhRescaling() const;
+
+    /**
+     * Get Tanh parameters beta0, beta1 and beta2.
+     */
+    void getTanhParameters(double& b0, double& b1, double& b2) const;
+
+    /**
+     *  Get the descreen offset for computing effective Born radii.
+     *
+     *  @return descreenOffset
+     */
+    double getDescreenOffset() const;
+
+    /**
      *  Get the number of particles.
      *
      *  @return number of particles
@@ -617,10 +369,9 @@ public:
     double getSolventDielectric() const;
 
     /**
-     *  Get the dielectric offset.
+     *  Get the dielectric offset for the cavity term.
      *
      *  @return dielectricOffset
-     *
      */
     double getDielectricOffset() const;
 
@@ -642,27 +393,28 @@ public:
 
     /**
      *  Get the vector of particle radii.
-     *
-     *  @param atomicRadii vector of atomic radii
-     *
      */
-    void getAtomicRadii(std::vector<double>& atomicRadii) const;
+    const vector<double>& getAtomicRadii() const;
 
     /**
      *  Get the vector of scale factors.
-     *
-     *  @param scaleFactors vector of scale factors
-     *
      */
-    void getScaleFactors(std::vector<double>& scaleFactors) const;
+    const vector<double>& getScaleFactors() const;
 
     /**
      *  Get the vector of charges.
-     *
-     *  @param charges vector of charges
-     *
      */
-    void getCharges(std::vector<double>& charges) const;
+    const vector<double>& getCharges() const;
+
+    /**
+     *  Get the vector of descreening radii.
+     */
+    const vector<double>& getDescreenRadii() const;
+
+    /**
+     *  Get the vector of neck scaling factors.
+     */
+    const vector<double>& getNeckFactors() const;
 
     /**
      * Copy changed parameters over to a context.
@@ -678,12 +430,19 @@ private:
     std::vector<double> atomicRadii;
     std::vector<double> scaleFactors;
     std::vector<double> charges;
+    std::vector<double> descreenRadii;
+    std::vector<double> neckFactors;
     double soluteDielectric;
     double solventDielectric;
     double dielectricOffset;
     double probeRadius;
     double surfaceAreaFactor;
     int includeCavityTerm;
+    bool tanhRescaling;
+    double beta0;
+    double beta1;
+    double beta2;
+    double descreenOffset;
     int directPolarization;
     const System& system;
 };

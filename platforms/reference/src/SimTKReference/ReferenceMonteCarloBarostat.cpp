@@ -54,6 +54,21 @@ ReferenceMonteCarloBarostat::~ReferenceMonteCarloBarostat() {
 
 /**---------------------------------------------------------------------------------------
 
+  Save the positions before applying the barostat.
+
+  @param atomPositions      atom positions
+
+  --------------------------------------------------------------------------------------- */
+
+void ReferenceMonteCarloBarostat::savePositions(vector<Vec3>& atomPositions) {
+    int numAtoms = savedAtomPositions[0].size();
+    for (int i = 0; i < numAtoms; i++)
+        for (int j = 0; j < 3; j++)
+            savedAtomPositions[j][i] = atomPositions[i][j];
+}
+
+/**---------------------------------------------------------------------------------------
+
   Apply the barostat at the start of a time step.
 
   @param atomPositions      atom positions
@@ -65,11 +80,6 @@ ReferenceMonteCarloBarostat::~ReferenceMonteCarloBarostat() {
   --------------------------------------------------------------------------------------- */
 
 void ReferenceMonteCarloBarostat::applyBarostat(vector<Vec3>& atomPositions, const Vec3* boxVectors, double scaleX, double scaleY, double scaleZ) {
-    int numAtoms = savedAtomPositions[0].size();
-    for (int i = 0; i < numAtoms; i++)
-        for (int j = 0; j < 3; j++)
-            savedAtomPositions[j][i] = atomPositions[i][j];
-
     // Loop over molecules.
 
     for (auto& molecule : molecules) {
@@ -82,15 +92,9 @@ void ReferenceMonteCarloBarostat::applyBarostat(vector<Vec3>& atomPositions, con
         }
         pos /= molecule.size();
 
-        // Move it into the first periodic box.
-
-        Vec3 newPos = pos;
-        newPos -= boxVectors[2]*floor(newPos[2]/boxVectors[2][2]);
-        newPos -= boxVectors[1]*floor(newPos[1]/boxVectors[1][1]);
-        newPos -= boxVectors[0]*floor(newPos[0]/boxVectors[0][0]);
-
         // Now scale the position of the molecule center.
 
+        Vec3 newPos = pos;
         newPos[0] *= scaleX;
         newPos[1] *= scaleY;
         newPos[2] *= scaleZ;
@@ -104,7 +108,7 @@ void ReferenceMonteCarloBarostat::applyBarostat(vector<Vec3>& atomPositions, con
 
 /**---------------------------------------------------------------------------------------
 
-  Restore atom positions to what they were before applyBarostat() was called.
+  Restore atom positions to what they were before savePositions() was called.
 
   @param atomPositions      atom positions
 
